@@ -1,0 +1,14 @@
+# AI Stuff
+.codex/
+.agents/
+.claude/
+.codegraph/
+AGENTS.md
+CLAUDE.md
+
+# packed repo
+packed-repo.xml
+packed-repo.xml.gz
+
+# git patches
+*.patch
