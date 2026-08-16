@@ -12,3 +12,8 @@ packed-repo.xml.gz
 
 # git patches
 *.patch
+
+# Rust build and coverage output
+/target/
+/coverage/
+*.lcov
