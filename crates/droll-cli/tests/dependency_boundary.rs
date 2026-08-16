@@ -2,7 +2,8 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
 
-const GUI_PACKAGES: &[&str] = &["avian3d", "bevy", "droll-gui", "wgpu", "winit"];
+const GUI_PACKAGE_NAMES: &[&str] = &["droll-gui", "raw-window-handle"];
+const GUI_PACKAGE_PREFIXES: &[&str] = &["avian", "bevy", "wgpu", "winit"];
 
 fn workspace_metadata() -> Metadata {
     let workspace_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -11,6 +12,7 @@ fn workspace_metadata() -> Metadata {
 
     MetadataCommand::new()
         .manifest_path(workspace_manifest)
+        .other_options(vec!["--locked".to_owned()])
         .exec()
         .expect("workspace metadata should resolve")
 }
@@ -40,7 +42,11 @@ fn direct_normal_dependencies(package: &Package) -> BTreeSet<&str> {
         .collect()
 }
 
-fn normal_dependency_closure(metadata: &Metadata, root: &PackageId) -> BTreeSet<String> {
+fn is_production_dependency(kind: &DependencyKind) -> bool {
+    matches!(kind, DependencyKind::Normal | DependencyKind::Build)
+}
+
+fn production_dependency_closure(metadata: &Metadata, root: &PackageId) -> BTreeSet<String> {
     let resolve = metadata
         .resolve
         .as_ref()
@@ -56,11 +62,11 @@ fn normal_dependency_closure(metadata: &Metadata, root: &PackageId) -> BTreeSet<
             .expect("resolved package should have a node");
 
         for dependency in &node.deps {
-            let is_normal = dependency
+            let is_production = dependency
                 .dep_kinds
                 .iter()
-                .any(|kind| kind.kind == DependencyKind::Normal);
-            if is_normal && visited.insert(dependency.pkg.clone()) {
+                .any(|kind| is_production_dependency(&kind.kind));
+            if is_production && visited.insert(dependency.pkg.clone()) {
                 pending.push(&dependency.pkg);
             }
         }
@@ -70,6 +76,22 @@ fn normal_dependency_closure(metadata: &Metadata, root: &PackageId) -> BTreeSet<
         .iter()
         .map(|package_id| package_by_id(metadata, package_id).name.to_string())
         .collect()
+}
+
+fn is_gui_package(package_name: &str) -> bool {
+    GUI_PACKAGE_NAMES.contains(&package_name)
+        || GUI_PACKAGE_PREFIXES.iter().any(|prefix| {
+            package_name == *prefix
+                || package_name.starts_with(&format!("{prefix}-"))
+                || package_name.starts_with(&format!("{prefix}_"))
+        })
+}
+
+#[test]
+fn test_production_dependency_kinds_exclude_development_dependencies() {
+    assert!(is_production_dependency(&DependencyKind::Normal));
+    assert!(is_production_dependency(&DependencyKind::Build));
+    assert!(!is_production_dependency(&DependencyKind::Development));
 }
 
 #[test]
@@ -89,11 +111,15 @@ fn test_workspace_dependency_boundaries() {
         BTreeSet::from(["avian3d", "bevy", "droll-core"])
     );
 
-    let cli_closure = normal_dependency_closure(&metadata, &cli.id);
-    for package_name in GUI_PACKAGES {
+    for package in [core, cli] {
+        let gui_dependencies: BTreeSet<_> = production_dependency_closure(&metadata, &package.id)
+            .into_iter()
+            .filter(|package_name| is_gui_package(package_name))
+            .collect();
         assert!(
-            !cli_closure.contains(*package_name),
-            "CLI dependency closure must exclude {package_name}"
+            gui_dependencies.is_empty(),
+            "{} normal/build dependency closure must exclude GUI packages: {gui_dependencies:?}",
+            package.name
         );
     }
 }
