@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.97.1
+  MSRV_VERSION: 1.95.0
+
+jobs:
+  native:
+    name: Native ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - name: macOS Apple Silicon
+            os: macos-15
+            target: aarch64-apple-darwin
+          - name: macOS Intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: Windows x86_64
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            g++ \
+            pkg-config \
+            libx11-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0
+          dpkg-query --show --showformat='${Package}=${Version}\n' \
+            g++ \
+            pkg-config \
+            libx11-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0
+
+      - name: Install Rust toolchain
+        uses: seapagan/setup-rust@a91f5a34c552642ece0e8cef8b5e9226f41a3c0b # v1.0.0
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt clippy
+
+      - name: Verify native Rust host
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          actual_target="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "${actual_target}" != "${EXPECTED_TARGET}" ]]; then
+            echo "error: expected native host ${EXPECTED_TARGET}, got ${actual_target}" >&2
+            exit 1
+          fi
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        with:
+          prefix-key: v1-${{ runner.os }}-${{ matrix.target }}-rust-${{ env.RUST_VERSION }}
+          shared-key: native
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install native quality tools
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-make@0.37.24,cargo-nextest@0.9.143
+
+      - name: Run native quality gate
+        run: cargo make verify-native
+
+      - name: Install Linux coverage tool
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-llvm-cov@0.8.7
+
+      - name: Generate Linux coverage
+        if: runner.os == 'Linux'
+        run: cargo make coverage
+
+      - name: Validate Linux coverage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -s target/llvm-cov/coverage.lcov
+          grep --quiet '^SF:' target/llvm-cov/coverage.lcov
+          grep --quiet '^end_of_record$' target/llvm-cov/coverage.lcov
+
+      - name: Upload Linux coverage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-linux
+          path: target/llvm-cov/coverage.lcov
+          if-no-files-found: error
+          retention-days: 7
+
+  msrv:
+    name: Rust 1.95.0 MSRV
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux native dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            g++ \
+            pkg-config \
+            libx11-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0
+
+      - name: Install Rust MSRV toolchain
+        uses: seapagan/setup-rust@a91f5a34c552642ece0e8cef8b5e9226f41a3c0b # v1.0.0
+        with:
+          toolchain: ${{ env.MSRV_VERSION }}
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        with:
+          prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.MSRV_VERSION }}
+          shared-key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-make@0.37.24
+
+      - name: Run MSRV gate
+        run: cargo make msrv

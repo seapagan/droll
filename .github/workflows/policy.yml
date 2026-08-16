@@ -1,0 +1,130 @@
+name: Policy
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.97.1
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: seapagan/setup-rust@a91f5a34c552642ece0e8cef8b5e9226f41a3c0b # v1.0.0
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        with:
+          prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.RUST_VERSION }}
+          shared-key: policy-audit
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install audit tools
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-make@0.37.24,cargo-audit@0.22.2
+
+      - name: Run dependency audit
+        run: cargo make audit
+
+  deny:
+    name: Dependency policy
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: seapagan/setup-rust@a91f5a34c552642ece0e8cef8b5e9226f41a3c0b # v1.0.0
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        with:
+          prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.RUST_VERSION }}
+          shared-key: policy-deny
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install dependency-policy tools
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-make@0.37.24,cargo-deny@0.20.2
+
+      - name: Run dependency policy
+        run: cargo make deny
+
+  actions-lint:
+    name: Workflow syntax
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: seapagan/setup-rust@a91f5a34c552642ece0e8cef8b5e9226f41a3c0b # v1.0.0
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
+        with:
+          tool: cargo-make@0.37.24
+
+      - name: Install actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          archive="actionlint_${version}_linux_amd64.tar.gz"
+          install_dir="${RUNNER_TEMP:?}/actionlint-${version}"
+          url="https://github.com/rhysd/actionlint/releases/download/v${version}/${archive}"
+
+          mkdir -p "${install_dir}"
+          curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
+            --output "${RUNNER_TEMP:?}/${archive}" "${url}"
+          printf '%s  %s\n' \
+            "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" \
+            "${RUNNER_TEMP:?}/${archive}" |
+            sha256sum --check -
+          tar -xzf "${RUNNER_TEMP:?}/${archive}" -C "${install_dir}"
+          echo "${install_dir}" >> "${GITHUB_PATH:?}"
+          "${install_dir}/actionlint" -version
+
+      - name: Validate workflow syntax
+        run: cargo make actions-lint
