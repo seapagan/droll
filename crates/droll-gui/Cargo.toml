@@ -14,5 +14,10 @@ avian3d.workspace = true
 bevy.workspace = true
 droll-core.workspace = true
 
+[[test]]
+name = "gui_scaffold"
+path = "tests/gui_scaffold.rs"
+harness = false
+
 [lints]
 workspace = true

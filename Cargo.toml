@@ -36,7 +36,7 @@ bevy = { version = "=0.19.1", default-features = false, features = [
     "ui_bevy_render",
 ] }
 cargo_metadata = "=0.23.1"
-droll-core = { path = "crates/droll-core" }
+droll-core = { version = "=0.1.0", path = "crates/droll-core" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
