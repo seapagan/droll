@@ -29,6 +29,22 @@ args = [
     "warnings",
 ]
 
+[tasks.quality]
+description = "Run non-blocking advisory maintainability checks"
+command = "cargo"
+args = [
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--",
+    "-W",
+    "clippy::too_many_lines",
+    "-W",
+    "clippy::too_many_arguments",
+]
+
 [tasks.test]
 description = "Run workspace tests with cargo-nextest"
 command = "cargo"

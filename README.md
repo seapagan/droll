@@ -70,6 +70,7 @@ cargo build --workspace --all-targets --all-features --locked
 ```console
 cargo make verify          # comprehensive Rust 1.97.1 local gate
 cargo make verify-native   # format, lint, tests, build, docs, boundaries
+cargo make quality         # non-blocking advisory maintainability checks
 cargo make msrv            # separate Rust 1.95.0 check and test gate
 cargo make policy          # advisory, license, source, and dependency policy
 cargo make workflow-policy # actionlint and pedantic Zizmor
@@ -77,8 +78,10 @@ cargo make workflow-policy # actionlint and pedantic Zizmor
 
 Focused tasks such as `format`, `check`, `clippy`, `test`, `doctest`, `build`,
 `docs`, `cli-boundary`, `gui-scaffold`, and `coverage` are available for
-iteration. Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not
-set an arbitrary percentage threshold.
+iteration. `quality` reports additional Clippy maintainability findings without
+making those findings blocking; operational failures still fail the task.
+Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not set an
+arbitrary percentage threshold.
 
 `cargo make verify` includes the pedantic Zizmor workflow audit. Zizmor enables
 online audits automatically when `ZIZMOR_GITHUB_TOKEN`, `GH_TOKEN`, or
