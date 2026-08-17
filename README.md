@@ -80,6 +80,17 @@ Focused tasks such as `format`, `check`, `clippy`, `test`, `doctest`, `build`,
 iteration. Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not
 set an arbitrary percentage threshold.
 
+`cargo make verify` includes the pedantic Zizmor workflow audit. Zizmor enables
+online audits automatically when `ZIZMOR_GITHUB_TOKEN`, `GH_TOKEN`, or
+`GITHUB_TOKEN` is available. Without one of those variables, it falls back to
+offline auditing, which skips online-only checks and therefore does not provide
+full parity with the hosted online Zizmor workflow.
+
+For local development, `ZIZMOR_GITHUB_TOKEN` is the preferred project-specific
+variable. Use a dedicated, least-privilege GitHub token with only the
+permissions required for read-only auditing. Never commit tokens to repository
+files.
+
 ## Dependency and license policy
 
 Direct third-party dependencies are exactly pinned, `Cargo.lock` is committed,

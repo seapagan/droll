@@ -86,7 +86,7 @@ jobs:
           fi
 
       - name: Restore Rust cache
-        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-${{ runner.os }}-${{ matrix.target }}-rust-${{ env.RUST_VERSION }}
           shared-key: native
@@ -156,7 +156,7 @@ jobs:
           toolchain: ${{ env.MSRV_VERSION }}
 
       - name: Restore Rust cache
-        uses: Swatinem/rust-cache@63fed3e2fecf6f7b51dc6f043341b79ef82a9ae7 # v2.9.2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.MSRV_VERSION }}
           shared-key: msrv
