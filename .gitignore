@@ -6,6 +6,10 @@
 AGENTS.md
 CLAUDE.md
 
+# python
+__pycache__/
+*.pyc
+
 # packed repo
 packed-repo.xml
 packed-repo.xml.gz
