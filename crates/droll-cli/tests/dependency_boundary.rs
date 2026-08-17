@@ -2,8 +2,8 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
 
-const GUI_PACKAGE_NAMES: &[&str] = &["droll-gui", "raw-window-handle"];
-const GUI_PACKAGE_PREFIXES: &[&str] = &["avian", "bevy", "wgpu", "winit"];
+const GUI_PACKAGE_NAMES: &[&str] = &["avian3d", "droll-gui", "raw-window-handle"];
+const GUI_PACKAGE_PREFIXES: &[&str] = &["bevy", "wgpu", "winit"];
 
 fn workspace_metadata() -> Metadata {
     let workspace_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -92,6 +92,20 @@ fn test_production_dependency_kinds_exclude_development_dependencies() {
     assert!(is_production_dependency(&DependencyKind::Normal));
     assert!(is_production_dependency(&DependencyKind::Build));
     assert!(!is_production_dependency(&DependencyKind::Development));
+}
+
+#[test]
+fn test_gui_package_classification() {
+    for package_name in ["avian3d", "bevy", "bevy_render", "wgpu-core", "winit"] {
+        assert!(is_gui_package(package_name), "{package_name} should be GUI");
+    }
+
+    for package_name in ["aviary", "bevyish", "wgpuish", "winitializer"] {
+        assert!(
+            !is_gui_package(package_name),
+            "{package_name} should not be GUI"
+        );
+    }
 }
 
 #[test]
