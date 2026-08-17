@@ -68,7 +68,7 @@ cargo build --workspace --all-targets --all-features --locked
 `cargo-make` is the canonical task runner:
 
 ```console
-cargo make verify          # comprehensive Rust 1.97.1 local gate
+cargo make verify          # comprehensive gate, including advisory quality
 cargo make verify-native   # format, lint, tests, build, docs, boundaries
 cargo make quality         # non-blocking advisory maintainability checks
 cargo make msrv            # separate Rust 1.95.0 check and test gate
@@ -78,8 +78,9 @@ cargo make workflow-policy # actionlint and pedantic Zizmor
 
 Focused tasks such as `format`, `check`, `clippy`, `test`, `doctest`, `build`,
 `docs`, `cli-boundary`, `gui-scaffold`, and `coverage` are available for
-iteration. `quality` reports additional Clippy maintainability findings without
-making those findings blocking; operational failures still fail the task.
+iteration. `verify` includes `quality`, which reports additional Clippy
+maintainability findings without making those findings blocking; operational
+failures still fail the task.
 Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not set an
 arbitrary percentage threshold.
 

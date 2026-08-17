@@ -27,6 +27,10 @@ args = [
     "--",
     "-D",
     "warnings",
+    "-A",
+    "clippy::too_many_lines",
+    "-A",
+    "clippy::too_many_arguments",
 ]
 
 [tasks.quality]
@@ -160,11 +164,12 @@ args = [
 ]
 
 [tasks.verify-native]
-description = "Run native formatting, lint, test, build, docs, and boundary gates"
+description = "Run native formatting, blocking and advisory lint, test, build, docs, and boundary gates"
 dependencies = [
     "format",
     "check",
     "clippy",
+    "quality",
     "test",
     "doctest",
     "build",
