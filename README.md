@@ -80,7 +80,9 @@ Focused tasks such as `format`, `check`, `clippy`, `test`, `doctest`, `build`,
 `docs`, `cli-boundary`, `gui-scaffold`, and `coverage` are available for
 iteration. `verify` includes `quality`, which reports additional Clippy
 maintainability findings without making those findings blocking; operational
-failures still fail the task.
+failures still fail the task. Hosted native CI runs the blocking gates through
+`verify-native`; the separate Advisory Quality workflow reports maintainability
+findings across Linux x86_64, both macOS architectures, and Windows x86_64.
 Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not set an
 arbitrary percentage threshold.
 

@@ -164,24 +164,36 @@ class CombinedCommentTests(unittest.TestCase):
     def render(
         self,
         linux: list[report.Finding],
+        macos_arm64: list[report.Finding],
+        macos_x64: list[report.Finding],
         windows: list[report.Finding],
     ) -> str:
         """Round-trip controlled platform findings through JSON files."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             linux_path = root / "quality-linux.json"
+            macos_arm64_path = root / "quality-macos-arm64.json"
+            macos_x64_path = root / "quality-macos-x64.json"
             windows_path = root / "quality-windows.json"
             report.write_platform_result(linux_path, "Linux", linux)
+            report.write_platform_result(
+                macos_arm64_path,
+                "macOS Apple Silicon",
+                macos_arm64,
+            )
+            report.write_platform_result(macos_x64_path, "macOS Intel", macos_x64)
             report.write_platform_result(windows_path, "Windows", windows)
             results = [
                 report.load_platform_result(linux_path),
+                report.load_platform_result(macos_arm64_path),
+                report.load_platform_result(macos_x64_path),
                 report.load_platform_result(windows_path),
             ]
             return report.render_combined_comment(results)
 
     def test_identical_findings_are_grouped_for_all_platforms(self) -> None:
         shared = finding()
-        comment = self.render([shared], [shared])
+        comment = self.render([shared], [shared], [shared], [shared])
 
         self.assertIn("## Maintainability checks ⚠️", comment)
         self.assertIn("These do not block merging.", comment)
@@ -190,14 +202,21 @@ class CombinedCommentTests(unittest.TestCase):
 
     def test_platform_only_findings_have_separate_headings(self) -> None:
         linux = finding("src/linux.rs", 20, "linux_check")
-        windows = finding("src/windows.rs", 30, "windows_check")
-        comment = self.render([linux], [windows])
+        macos_arm64 = finding("src/macos.rs", 30, "macos_check")
+        comment = self.render([linux], [macos_arm64], [], [])
 
         self.assertIn("### Linux only", comment)
-        self.assertIn("### Windows only", comment)
+        self.assertIn("### macOS Apple Silicon only", comment)
+
+    def test_findings_shared_by_both_macos_architectures_are_grouped(self) -> None:
+        shared = finding("src/macos.rs", 30, "macos_check")
+        comment = self.render([], [shared], [shared], [])
+
+        self.assertIn("### macOS Apple Silicon + macOS Intel", comment)
+        self.assertEqual(comment.count("`macos_check`"), 1)
 
     def test_no_findings_uses_droll_marker_and_no_platform_sections(self) -> None:
-        comment = self.render([], [])
+        comment = self.render([], [], [], [])
 
         self.assertEqual(
             comment,
@@ -217,7 +236,7 @@ class CombinedCommentTests(unittest.TestCase):
     def test_same_function_at_different_locations_is_not_merged(self) -> None:
         linux = finding("src/one.rs", 10, "shared_name")
         windows = finding("src/two.rs", 20, "shared_name")
-        comment = self.render([linux], [windows])
+        comment = self.render([linux], [], [], [windows])
 
         self.assertEqual(comment.count("`shared_name`"), 2)
         self.assertIn("`src/one.rs:10`", comment)
@@ -225,7 +244,7 @@ class CombinedCommentTests(unittest.TestCase):
 
     def test_displayed_thresholds_match_clippy_config(self) -> None:
         config = tomllib.loads((ROOT / "clippy.toml").read_text(encoding="utf-8"))
-        comment = self.render([], [])
+        comment = self.render([], [], [], [])
 
         self.assertIn(
             f"- function lines: {config['too-many-lines-threshold']}",

@@ -164,12 +164,11 @@ args = [
 ]
 
 [tasks.verify-native]
-description = "Run native formatting, blocking and advisory lint, test, build, docs, and boundary gates"
+description = "Run native formatting, blocking lint, test, build, docs, and boundary gates"
 dependencies = [
     "format",
     "check",
     "clippy",
-    "quality",
     "test",
     "doctest",
     "build",
@@ -191,5 +190,5 @@ description = "Lint and audit GitHub Actions workflows"
 dependencies = ["actions-lint", "zizmor"]
 
 [tasks.verify]
-description = "Run the comprehensive current-toolchain local gate"
-dependencies = ["verify-native", "coverage", "policy", "workflow-policy"]
+description = "Run the comprehensive current-toolchain local gate, including advisory quality"
+dependencies = ["verify-native", "quality", "coverage", "policy", "workflow-policy"]

@@ -30,9 +30,19 @@ jobs:
           - platform: Linux
             os: ubuntu-24.04
             slug: linux
+            target: x86_64-unknown-linux-gnu
+          - platform: macOS Apple Silicon
+            os: macos-15
+            slug: macos-arm64
+            target: aarch64-apple-darwin
+          - platform: macOS Intel
+            os: macos-15-intel
+            slug: macos-x64
+            target: x86_64-apple-darwin
           - platform: Windows
             os: windows-2025
             slug: windows
+            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -59,10 +69,21 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
 
+      - name: Verify native Rust host
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          actual_target="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "${actual_target}" != "${EXPECTED_TARGET}" ]]; then
+            echo "error: expected native host ${EXPECTED_TARGET}, got ${actual_target}" >&2
+            exit 1
+          fi
+
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: v1-${{ runner.os }}-rust-${{ env.RUST_VERSION }}
+          prefix-key: v1-${{ runner.os }}-${{ matrix.target }}-rust-${{ env.RUST_VERSION }}
           shared-key: advisory-quality-${{ matrix.slug }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -124,6 +145,18 @@ jobs:
           name: advisory-quality-linux
           path: quality-reports
 
+      - name: Download macOS Apple Silicon advisory report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: advisory-quality-macos-arm64
+          path: quality-reports
+
+      - name: Download macOS Intel advisory report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: advisory-quality-macos-x64
+          path: quality-reports
+
       - name: Download Windows advisory report
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -138,6 +171,8 @@ jobs:
           python .github/scripts/advisory_quality_report.py combine \
             quality-comment.md \
             quality-reports/quality-linux.json \
+            quality-reports/quality-macos-arm64.json \
+            quality-reports/quality-macos-x64.json \
             quality-reports/quality-windows.json
 
       - name: Upload advisory comment
