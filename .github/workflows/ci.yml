@@ -88,7 +88,7 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: v1-${{ runner.os }}-${{ matrix.target }}-rust-${{ env.RUST_VERSION }}
+          prefix-key: v1-${{ runner.os }}-${{ matrix.target }}-rust-${{ env.RUST_VERSION }}-${{ hashFiles('Cargo.toml') }}
           shared-key: native
 
       - name: Install native quality tools
@@ -157,7 +157,7 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.MSRV_VERSION }}
+          prefix-key: v1-${{ runner.os }}-x86_64-unknown-linux-gnu-rust-${{ env.MSRV_VERSION }}-${{ hashFiles('Cargo.toml') }}
           shared-key: msrv
 
       - name: Install cargo-make
