@@ -12,6 +12,10 @@ where
     F: FnOnce(),
 {
     match arguments {
+        [] => {
+            construct_scaffold();
+            Ok(())
+        }
         [list, format, terse] if list == "--list" && format == "--format" && terse == "terse" => {
             writeln!(output, "{TEST_NAME}: test").map_err(|_| "failed to write test listing")
         }

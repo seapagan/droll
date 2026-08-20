@@ -95,7 +95,17 @@ args = [
 [tasks.gui-scaffold]
 description = "Construct the GUI scaffold on the process main thread"
 command = "cargo"
-args = ["test", "--package", "droll-gui", "--test", "gui_scaffold", "--locked"]
+args = [
+    "nextest",
+    "run",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--no-fail-fast",
+    "--filterset",
+    "binary_id(=droll-gui::gui_scaffold) & test(=gui_scaffold)",
+]
 
 [tasks.prepare-coverage]
 private = true
