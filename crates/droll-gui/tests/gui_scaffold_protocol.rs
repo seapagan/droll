@@ -57,6 +57,22 @@ fn test_exact_execution_runs_the_scaffold_once() {
 }
 
 #[test]
+fn test_documented_nextest_execution_runs_the_scaffold_once() {
+    let runs = Cell::new(0);
+    let mut output = Vec::new();
+
+    let result = gui_scaffold_harness::run(
+        &arguments(&["gui_scaffold", "--nocapture", "--exact"]),
+        &mut output,
+        || runs.set(runs.get() + 1),
+    );
+
+    assert_eq!(result, Ok(()));
+    assert!(output.is_empty());
+    assert_eq!(runs.get(), 1);
+}
+
+#[test]
 fn test_unfiltered_cargo_execution_runs_the_scaffold_once() {
     let runs = Cell::new(0);
     let mut output = Vec::new();

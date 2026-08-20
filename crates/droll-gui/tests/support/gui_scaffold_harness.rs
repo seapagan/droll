@@ -27,8 +27,9 @@ where
         {
             Ok(())
         }
-        [exact, test_name, nocapture]
-            if exact == "--exact" && test_name == TEST_NAME && nocapture == "--nocapture" =>
+        [first, second, third]
+            if (first == "--exact" && second == TEST_NAME && third == "--nocapture")
+                || (first == TEST_NAME && second == "--nocapture" && third == "--exact") =>
         {
             construct_scaffold();
             Ok(())
