@@ -14,3 +14,11 @@
 - [ ] Deduplicate the Linux native dependency package list used by native CI,
   MSRV, Advisory Quality, verification, and documentation while preserving
   transparent installation and installed-version evidence.
+
+## CI Optimization
+
+- [ ] Investigate further CI cache reductions if storage becomes material again:
+  consider disabling `rust-cache` `cache-bin`, isolating Linux coverage
+  artifacts from the native cache, and re-evaluating advisory-quality target
+  caching against its warm-run benefit. Preserve all existing verification
+  gates. Current clean Stage 0 baseline is ~5.68 GB total cache usage.
