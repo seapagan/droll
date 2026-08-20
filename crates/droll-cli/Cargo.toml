@@ -1,0 +1,23 @@
+[package]
+name = "droll-cli"
+description = "Lightweight command-line entry point for Droll"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "droll"
+path = "src/main.rs"
+
+[dependencies]
+droll-core.workspace = true
+
+[dev-dependencies]
+cargo_metadata.workspace = true
+
+[lints]
+workspace = true

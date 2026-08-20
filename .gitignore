@@ -6,9 +6,18 @@
 AGENTS.md
 CLAUDE.md
 
+# python
+__pycache__/
+*.pyc
+
 # packed repo
 packed-repo.xml
 packed-repo.xml.gz
 
 # git patches
 *.patch
+
+# Rust build and coverage output
+/target/
+/coverage/
+*.lcov

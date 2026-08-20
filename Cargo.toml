@@ -1,0 +1,46 @@
+[workspace]
+members = [
+    "crates/droll-cli",
+    "crates/droll-core",
+    "crates/droll-gui",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Grant Ramsay <seapagan@gmail.com>"]
+edition = "2024"
+rust-version = "1.95.0"
+license = "MIT"
+repository = "https://github.com/seapagan/droll"
+publish = false
+
+[workspace.dependencies]
+avian3d = { version = "=0.7.0", default-features = false, features = [
+    "3d",
+    "f32",
+    "parry-f32",
+] }
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    "reflect_auto_register",
+    "bevy_winit",
+    "multi_threaded",
+    "x11",
+    "wayland",
+    "3d_bevy_render",
+    "ui_bevy_render",
+] }
+cargo_metadata = "=0.23.1"
+droll-core = { version = "=0.1.0", path = "crates/droll-core" }
+
+# Omit dependency debuginfo to control build/cache footprint; workspace crates keep dev defaults.
+[profile.dev.package."*"]
+debug = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

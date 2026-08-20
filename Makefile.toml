@@ -1,0 +1,204 @@
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+
+[env]
+MSRV_VERSION = "1.95.0"
+
+[tasks.format]
+description = "Check Rust formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.check]
+description = "Check all workspace targets and features"
+command = "cargo"
+args = ["check", "--workspace", "--all-targets", "--all-features", "--locked"]
+
+[tasks.clippy]
+description = "Run Clippy with warnings denied"
+command = "cargo"
+args = [
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--",
+    "-D",
+    "warnings",
+    "-A",
+    "clippy::too_many_lines",
+    "-A",
+    "clippy::too_many_arguments",
+]
+
+[tasks.quality]
+description = "Run non-blocking advisory maintainability checks"
+command = "cargo"
+args = [
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--",
+    "-W",
+    "clippy::too_many_lines",
+    "-W",
+    "clippy::too_many_arguments",
+]
+
+[tasks.test]
+description = "Run workspace tests with cargo-nextest"
+command = "cargo"
+args = [
+    "nextest",
+    "run",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--no-fail-fast",
+]
+
+[tasks.doctest]
+description = "Run workspace documentation tests"
+command = "cargo"
+args = ["test", "--workspace", "--doc", "--all-features", "--locked"]
+
+[tasks.build]
+description = "Build all workspace targets and features"
+command = "cargo"
+args = ["build", "--workspace", "--all-targets", "--all-features", "--locked"]
+
+[tasks.docs]
+description = "Build workspace documentation with warnings denied"
+env = { "RUSTDOCFLAGS" = "-D warnings" }
+command = "cargo"
+args = ["doc", "--workspace", "--all-features", "--no-deps", "--locked"]
+
+[tasks.cli-boundary]
+description = "Verify the headless CLI and dependency boundary"
+command = "cargo"
+args = [
+    "test",
+    "--package",
+    "droll-cli",
+    "--test",
+    "cli_skeleton",
+    "--test",
+    "dependency_boundary",
+    "--locked",
+]
+
+[tasks.gui-scaffold]
+description = "Construct the GUI scaffold on the process main thread"
+command = "cargo"
+args = [
+    "nextest",
+    "run",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--no-fail-fast",
+    "--filterset",
+    "binary_id(=droll-gui::gui_scaffold) & test(=gui_scaffold)",
+]
+
+[tasks.prepare-coverage]
+private = true
+script_runner = "@duckscript"
+script = ["mkdir target/llvm-cov"]
+
+[tasks.coverage]
+description = "Generate repository-relative LCOV coverage"
+dependencies = ["prepare-coverage"]
+command = "cargo"
+args = [
+    "llvm-cov",
+    "nextest",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--no-fail-fast",
+    "--remap-path-prefix",
+    "--lcov",
+    "--output-path=target/llvm-cov/coverage.lcov",
+]
+
+[tasks.audit]
+description = "Audit the locked dependency graph"
+command = "cargo"
+args = ["audit"]
+
+[tasks.deny]
+description = "Check dependency licenses, sources, bans, and advisories"
+command = "cargo"
+args = ["deny", "check"]
+
+[tasks.actions-lint]
+description = "Validate GitHub Actions workflow syntax"
+command = "actionlint"
+
+[tasks.zizmor]
+description = "Audit GitHub Actions workflows with the pedantic persona"
+command = "zizmor"
+args = ["--persona=pedantic", "."]
+
+[tasks.msrv-check]
+private = true
+install_crate = false
+command = "cargo"
+args = [
+    "+${MSRV_VERSION}",
+    "check",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+]
+
+[tasks.msrv-test]
+private = true
+install_crate = false
+command = "cargo"
+args = [
+    "+${MSRV_VERSION}",
+    "test",
+    "--workspace",
+    "--all-features",
+    "--locked",
+]
+
+[tasks.verify-native]
+description = "Run native formatting, blocking lint, test, build, docs, and boundary gates"
+dependencies = [
+    "format",
+    "check",
+    "clippy",
+    "test",
+    "doctest",
+    "build",
+    "docs",
+    "cli-boundary",
+    "gui-scaffold",
+]
+
+[tasks.msrv]
+description = "Check and test with the minimum supported Rust version"
+dependencies = ["msrv-check", "msrv-test"]
+
+[tasks.policy]
+description = "Run dependency security, license, and provenance checks"
+dependencies = ["audit", "deny"]
+
+[tasks.workflow-policy]
+description = "Lint and audit GitHub Actions workflows"
+dependencies = ["actions-lint", "zizmor"]
+
+[tasks.verify]
+description = "Run the comprehensive current-toolchain local gate, including advisory quality"
+dependencies = ["verify-native", "quality", "coverage", "policy", "workflow-policy"]

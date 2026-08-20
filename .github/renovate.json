@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "rangeStrategy": "pin",
+  "packageRules": [
+    {
+      "description": "Keep Cargo requirements exact",
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Keep GitHub Actions pinned by digest",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ]
+}
