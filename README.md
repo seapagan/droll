@@ -2,8 +2,9 @@
 
 Droll is the foundation of a cross-platform RPG dice roller with a lightweight
 command-line interface and a native 3D graphical application. The repository is
-currently at **Stage 0**: its workspace, architectural boundaries, and quality
-gates exist, but dice rolling and finished CLI/GUI behavior do not.
+currently implementing the bounded **Stage 1 directed-physics feasibility
+spike**. Its evidence and required human visual verdicts remain pending; this is
+not yet the finished dice roller.
 
 ## Architecture
 
@@ -15,10 +16,11 @@ The Rust 2024 workspace contains three packages:
 - `droll-gui`: the package that emits `droll-gui` and exclusively owns the Bevy
   and Avian graphical stack.
 
-The Stage 0 `droll` binary supports conventional `--help` and `--version`
-output. Roll parsing, evaluation, and no-argument GUI dispatch are later-stage
-work. The `droll-gui` binary constructs the minimal Bevy/Avian application; it
-does not yet contain layout, interaction, dice meshes, or roll physics.
+The `droll` binary still supports only the Stage 0 conventional `--help` and
+`--version` output. Roll parsing, evaluation, and no-argument GUI dispatch are
+later-stage work. The normal `droll-gui` binary remains the minimal Bevy/Avian
+application. A development-only Stage 1 example owns the generated d6 geometry,
+bounded cases, and physics-spike review surface.
 
 ## Supported platforms
 

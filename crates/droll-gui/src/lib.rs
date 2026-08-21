@@ -1,4 +1,7 @@
-//! Native graphical application scaffold for Droll.
+//! Native graphical application scaffold and bounded Stage 1 spike support.
+
+pub mod dice;
+pub mod spike;
 
 use avian3d::prelude::PhysicsPlugins;
 use bevy::{DefaultPlugins, app::App};
