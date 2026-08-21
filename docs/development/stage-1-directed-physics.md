@@ -10,12 +10,20 @@ die being rotated toward a predetermined face strongly enough to become
 `RenewedMotion`/`Bouncing`. The render mesh also culled its exterior faces
 because its triangle winding opposed its stored outward normals.
 
-Replacement `review-candidate-d` is systemically ready for owner review. Its
-owner visual verdict is **pending**. Automated tests, metrics, native window
-execution, screenshots or recordings, and the implementation agent's judgement
-do not constitute a visual pass. d20, multi-die, and later phases remain
-unimplemented and prohibited until the owner explicitly passes this d6
-checkpoint.
+The owner also reviewed `review-candidate-d` at
+`5faf74f5202eb0ed32e47c3a37080afe6683c247` and recorded **FAIL / rejected** on
+2026-08-21. Candidate D's 18/18 systemic result does not override the repeated
+visibly targeted recovery-hop behavior: 15 of 18 ordinary d6 cases required
+recovery, with 18 recoveries in total and three cases requiring two. Recovery
+was therefore the normal outcome-selection mechanism, not an exceptional
+pathology path.
+
+The late-guided-settling/recovery architecture is rejected. The approved
+replacement hypothesis is H1 symmetry-conditioned launch families: only the
+initial proper body-local solid symmetry may depend on the target, and all
+post-spawn motion and settling must be unassisted. H1 remains unproven. d20,
+multi-die, and later phases remain prohibited until the replacement d6 gate
+passes its automated, platform, and owner-review requirements.
 
 ## Candidate provenance and fixed configuration
 
@@ -132,7 +140,7 @@ entry below 0.2350/0.2745 for Candidate D. The motion states remain separable.
 |---|---:|---:|---:|---:|---|
 | Candidate B | unrestricted / raw P-D / 1.8 impulse | 18/18 | 0/0 headless | 6.203 s | **Owner rejected**: late face-changing guidance |
 | Narrow | pi/80 / 0.05 / 2.6 | 18/18 | 18/2 | 3.828 s | Rejected after native timing caused an unnecessary hop |
-| Candidate D | pi/40 / 0.05 / 2.6 | 18/18 | 18/2 | 3.828 s | Replacement owner-review candidate |
+| Candidate D | pi/40 / 0.05 / 2.6 | 18/18 | 18/2 | 3.828 s | **Owner rejected**: repeated targeted recovery hops |
 | Broad/high | pi/20 / 0.20 / 3.0 | 18/18 | 18/2 | 4.188 s | Rejected: larger correction/energy without systemic benefit |
 
 Candidate D headless results are 18/18 correct, with no wrong-face reveal,
@@ -146,7 +154,7 @@ Per-case fixed-step rows, including the preserved rejected Candidate B rows,
 are in `stage-1-directed-physics-metrics.csv` in deterministic face/start
 order.
 
-## Cases requiring deliberate owner review
+## Candidate D visual failure cases
 
 - Two recoveries: `d6-1-high-tumble`, `d6-2-awkward-low-energy`, and
   `d6-4-side-spin`.
@@ -155,9 +163,9 @@ order.
 - Deliberate production-selected recovery: `recovery-bad-orientation`.
 - Natural no-recovery control: `recovery-edge`.
 
-The two-recovery cases are the main open visual risk. If those hops are
-conspicuous or equally manipulative, the checkpoint fails and requires
-architecture review; their systemic correctness cannot waive that result.
+The repeated recovery hops were visibly targeted and failed the owner review.
+Their systemic correctness cannot waive that result. These case IDs remain as
+reproducers and negative evidence for the rejected architecture.
 
 ## Review commands
 
@@ -180,6 +188,7 @@ driver 595.84. macOS arm64, macOS Intel, Windows native/manual evidence, d20,
 multi-die, keep/drop, and final Stage 1 GO/STOP remain later gates. Linux xwin
 0.23.1 remains supplementary compile/check/Clippy evidence only.
 
-Checkpoint verdict: **PENDING OWNER D6 PASS/FAIL FOR CANDIDATE D**. Automated
-results and the implementation agent's own visual judgement are not approval.
-Do not begin d20 until the owner records an explicit pass.
+Checkpoint verdict: **FAIL / OWNER-REJECTED FOR CANDIDATE D**. The
+late-guided-settling/recovery architecture is rejected; H1 is the approved
+replacement hypothesis. Candidate B/D measurements remain historical negative
+evidence and do not constitute H1 evidence or approval.
