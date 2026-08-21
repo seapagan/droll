@@ -23,9 +23,18 @@ replacement hypothesis was H1 symmetry-conditioned launch families: only the
 initial proper body-local solid symmetry may depend on the target, and all
 post-spawn motion and settling must be unassisted. The bounded H1 implementation
 at `623986844597b96f306c87c5dfa83f1c7689c67e` achieved 216/216 correct
-unassisted faces but **failed its mandatory
-paired physical-trajectory-equivalence gate**. H1 is therefore at STOP before
-the Linux visual checkpoint. d20, multi-die, and later phases remain prohibited.
+unassisted faces but **failed the then-ratified complete-trajectory paired
+physical-equivalence gate**. That mandatory STOP remains part of the experiment
+history. The preserved pair was equivalent before contact and diverged only
+after contact.
+
+The owner subsequently corrected the H1 contract: paired pre-contact physical
+equivalence remains blocking, while numerical divergence at and after contact
+is diagnostic unless it causes an actual H1 defect. The corrected test boundary
+at `d185919` passes all 216 paired cases without changing the prior tolerances,
+and the independent all-face corpus remains 216/216 with zero recovery or
+intervention. H1 has not received an owner visual verdict. d20, multi-die, and
+later phases remain prohibited.
 
 ## Candidate provenance and fixed configuration
 
@@ -221,7 +230,7 @@ intervention. Maximum completion was 1.969 s for family A, 2.234 s for family B,
 3.016 s for family C, and 2.406 s for family D. Group summaries remain in the
 CSV; raw per-step traces remain untracked build evidence.
 
-### Paired trajectory-equivalence failure
+### Initial complete-trajectory paired-equivalence STOP
 
 The paired test runs a target-independent geometric control and canonicalizes
 the target orientation as:
@@ -249,17 +258,59 @@ were:
 
 Contact counts remained paired through the compared trace and both runs reached
 the correct face, but the physical-field deltas materially exceeded every
-numeric tolerance. The test fails before checking later target pairs. Under the
-approved H1 contract this is evidence that the live convex-collider/solver path
-does not preserve the required same-build physical trajectory equivalence from
-the symmetry premise. Correct terminal faces cannot waive this gate.
+then-blocking complete-trace numeric tolerance. The original test stopped
+before checking later target pairs. Under the contract ratified at that time,
+this was a mandatory **STOP / PAIRED-TRAJECTORY DIVERGENCE** before Linux visual
+review. The implementation and negative evidence were preserved. The later
+contract correction does not erase, rename, or reinterpret that original STOP.
 
-H1 verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE**. The implementation and
-negative evidence are preserved. Tolerances were not loosened; no early
-steering, recovery, collider workaround, dependency, target-specific launch
-state, or architecture expansion was added. The Linux owner visual checkpoint
-was not reached, so there is no H1 visual command, observation, or owner verdict
-to report.
+### Corrected pre-contact gate rerun
+
+Commit `d185919` splits each paired trace at the first physical tray contact in
+either run. Position, linear velocity, angular velocity, and sign-invariant
+canonical orientation remain blocking before that boundary with the unchanged
+0.01 m, 0.02 m/s, 0.02 rad/s, and 0.01 rad tolerances. The existing pure
+composition-order regression remains blocking, and an additional regression
+proves that target-dependent initial linear velocity fails the pre-contact
+gate.
+
+All 216/216 paired cases passed the corrected pre-contact gate. Across them,
+first contact occurred at trace steps 37-48. Maximum pre-contact deltas were:
+
+- world position: 0.000000363 m;
+- linear velocity: 0.0 m/s;
+- angular velocity: 0.000275784 rad/s; and
+- canonical orientation: 0.00119604 rad.
+
+Post-contact measurements remain present for every pair. Of 216 comparisons,
+180 crossed at least one former complete-trace numeric/lifecycle/contact
+threshold and 36 did not. First recorded diagnostic divergence was at trace
+steps 51-122, always after the paired first-contact boundary. Bounded maxima
+across the post-contact paired traces were 0.126389 m position, 1.693292 m/s
+linear velocity, 4.861898 rad/s angular velocity, 0.325243 rad canonical
+orientation, and 0.328125 s completion-time difference. Tray contact-count
+transitions, completion differences, and both final physical faces remain in
+the per-pair test diagnostics.
+
+The previously preserved `h1-family-a`, nominal target-1 comparison remains
+equivalent through first contact at step 46 and first crosses a former strict
+threshold at step 51. Its maximum post-contact deltas remain 0.01532233 m,
+0.22150882 m/s, 0.61894333 rad/s, and 0.02007314 rad, with a 0.015625 s
+completion difference. The control finishes on its natural face 6 and the
+mapped run finishes on requested face 1.
+
+The separately rerun nominal+nuisance outcome corpus remains **216/216 correct
+faces**, with zero timeout, wrong face, recovery, retry, or post-spawn
+target-aware force, torque, work, transform correction, or other intervention.
+Completion was 1.719-3.016 s; family maxima remained 1.969 s (A), 2.234 s (B),
+3.016 s (C), and 2.406 s (D). Peak corpus linear/angular speeds were
+7.5031/11.4011. The family search was not rerun or expanded to replace any
+family.
+
+Corrected automated H1 verdict: **PASS / OWNER LINUX VISUAL VERDICT PENDING**.
+This automated result and any agent observation are not the required owner
+visual verdict. No d20 or cross-platform H1 validation is authorized before
+that later explicit owner decision.
 
 ## Historical Candidate D review commands
 
@@ -283,6 +334,8 @@ multi-die, keep/drop, and final Stage 1 GO/STOP remain later gates. Linux xwin
 0.23.1 remains supplementary compile/check/Clippy evidence only.
 
 Candidate D checkpoint verdict: **FAIL / OWNER-REJECTED**. H1 replacement
-checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
-REVIEW**. Candidate B/D and H1 measurements remain historical negative evidence;
-none constitutes visual approval or authority to begin d20.
+initial checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
+REVIEW**. The corrected pre-contact gate and 216/216 corpus pass, but the H1
+owner Linux visual verdict remains pending. Candidate B/D and the original H1
+STOP remain historical evidence; neither automation nor agent observation
+constitutes visual approval or authority to begin d20.

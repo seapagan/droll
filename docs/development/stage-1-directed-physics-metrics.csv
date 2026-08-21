@@ -76,3 +76,9 @@ linux-x86_64,debug,h1-family-d,d6-h1-corpus,search-48-base-3-linear-times-0.99,1
 linux-x86_64,debug,h1-family-d,d6-h1-corpus,search-48-base-3-angular-times-1.01,1-6,6/6,systemic-pass-paired-gate-failed,0,2.109,,,,0.0000,,,,h1-paired-trajectory-divergence
 linux-x86_64,debug,h1-family-d,d6-h1-corpus,search-48-base-3-angular-times-0.99,1-6,6/6,systemic-pass-paired-gate-failed,0,2.109,,,,0.0000,,,,h1-paired-trajectory-divergence
 linux-x86_64,debug,h1-family-a,d6-h1-paired,search-01-base-6-nominal-target-1,1,1,paired-fail,0,,,,,0.0000,,,,paired-physical-fields-diverged-after-contact
+linux-x86_64,debug,h1-corrected-gate,d6-h1-paired,all-216-pairs,1-6,216/216,pre-contact-pass-post-contact-diagnostic,0,3.016,,,,0.0000,,,,post-contact-divergence-diagnostic-only
+linux-x86_64,debug,h1-corrected-gate,d6-h1-paired,search-01-base-6-nominal-target-1,1,1,pre-contact-pass-post-contact-diagnostic,0,1.766,,,,0.0000,,,,post-contact-divergence-diagnostic-step-51
+linux-x86_64,debug,h1-family-a,d6-h1-corrected-corpus,search-01-base-6-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,1.969,,,,0.0000,,,,
+linux-x86_64,debug,h1-family-b,d6-h1-corrected-corpus,search-16-base-3-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,2.234,,,,0.0000,,,,
+linux-x86_64,debug,h1-family-c,d6-h1-corrected-corpus,search-32-base-1-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,3.016,,,,0.0000,,,,
+linux-x86_64,debug,h1-family-d,d6-h1-corrected-corpus,search-48-base-3-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,2.406,,,,0.0000,,,,
