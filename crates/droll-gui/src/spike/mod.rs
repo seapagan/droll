@@ -12,7 +12,8 @@ use bevy::{
 
 use crate::dice::{d6_geometry, d6_labels, d6_mesh};
 use crate::physics::{
-    DieLifecycle, DieMetrics, DieState, DirectedDie, DirectedPhysicsPlugin, directed_d6_components,
+    DieLifecycle, DieMetrics, DieState, DirectedDie, DirectedPhysicsPlugin, TraySurface,
+    directed_d6_components,
 };
 
 pub use scenario::{SpikeCase, SpikeScenario, StartCase};
@@ -91,6 +92,7 @@ fn spawn_scene(
         })),
         Transform::from_xyz(0.0, -0.1, 0.0),
         RigidBody::Static,
+        TraySurface,
         Collider::cuboid(8.0, 0.2, 6.0),
         Friction::new(0.72),
     ));
@@ -110,6 +112,7 @@ fn spawn_scene(
             MeshMaterial3d(wall_material.clone()),
             Transform::from_translation(translation),
             RigidBody::Static,
+            TraySurface,
             Collider::cuboid(size.x, size.y, size.z),
             Friction::new(0.72),
         ));

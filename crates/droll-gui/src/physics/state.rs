@@ -15,13 +15,16 @@ pub enum DieLifecycle {
 pub enum TransitionReason {
     ThrowStarted,
     FirstContact,
-    LowEnergyNearTray,
+    TargetInsideCapture,
+    TargetOutsideCapture,
     TargetCandidate,
     StableTarget,
     RenewedMotion,
     CandidateInvalidated,
     GuidanceStalled,
-    RecoveryImpulseComplete,
+    LeftCaptureRegion,
+    RecoveryContact,
+    RecoveryTimedOut,
     RecoveryBudgetExhausted,
     Timeout,
 }
@@ -33,6 +36,7 @@ pub struct DieObservation {
     pub linear_speed: f32,
     pub angular_speed: f32,
     pub angular_error: f32,
+    pub kinetic_energy: f32,
     pub upward_face: u8,
     pub target_face: u8,
 }
@@ -44,6 +48,8 @@ pub struct DieState {
     pub state_seconds: f32,
     pub stable_seconds: f32,
     pub recovery_count: u8,
+    pub recovery_impulse_applied: bool,
+    pub recovery_airborne: bool,
 }
 
 impl Default for DieState {
@@ -54,6 +60,8 @@ impl Default for DieState {
             state_seconds: 0.0,
             stable_seconds: 0.0,
             recovery_count: 0,
+            recovery_impulse_applied: false,
+            recovery_airborne: false,
         }
     }
 }
@@ -63,6 +71,8 @@ impl DieState {
         self.lifecycle = next;
         self.state_seconds = 0.0;
         self.stable_seconds = 0.0;
+        self.recovery_impulse_applied = false;
+        self.recovery_airborne = false;
         if next == DieLifecycle::Recovery {
             self.recovery_count += 1;
         }
@@ -86,6 +96,12 @@ pub fn advance_lifecycle(
     }
     state.total_seconds += delta_seconds;
     state.state_seconds += delta_seconds;
+    if state.lifecycle == DieLifecycle::Recovery
+        && state.recovery_impulse_applied
+        && !observation.tray_contact
+    {
+        state.recovery_airborne = true;
+    }
     if state.total_seconds >= config.timeout_seconds {
         state.transition(DieLifecycle::Failed);
         return Some(TransitionReason::Timeout);
@@ -116,46 +132,67 @@ fn next_transition(
         }
         DieLifecycle::Bouncing if can_begin_guidance(observation, config) => Some((
             DieLifecycle::GuidedSettling,
-            TransitionReason::LowEnergyNearTray,
+            TransitionReason::TargetInsideCapture,
         )),
+        DieLifecycle::Bouncing if needs_recovery(observation, config) => {
+            recovery_or_failure(state, TransitionReason::TargetOutsideCapture, config)
+        }
         DieLifecycle::GuidedSettling if meaningful_disturbance(observation, config) => {
             Some((DieLifecycle::Bouncing, TransitionReason::RenewedMotion))
+        }
+        DieLifecycle::GuidedSettling if !inside_capture(observation, config) => {
+            recovery_or_failure(state, TransitionReason::LeftCaptureRegion, config)
         }
         DieLifecycle::GuidedSettling if is_target_candidate(observation, config) => Some((
             DieLifecycle::RestCandidate,
             TransitionReason::TargetCandidate,
         )),
         DieLifecycle::GuidedSettling if state.state_seconds >= config.guidance_stall_seconds => {
-            if state.recovery_count >= config.recovery_budget {
-                Some((
-                    DieLifecycle::Failed,
-                    TransitionReason::RecoveryBudgetExhausted,
-                ))
-            } else {
-                Some((DieLifecycle::Recovery, TransitionReason::GuidanceStalled))
-            }
+            recovery_or_failure(state, TransitionReason::GuidanceStalled, config)
         }
         DieLifecycle::RestCandidate if meaningful_disturbance(observation, config) => {
             Some((DieLifecycle::Bouncing, TransitionReason::RenewedMotion))
         }
-        DieLifecycle::RestCandidate if !is_target_candidate(observation, config) => Some((
-            DieLifecycle::GuidedSettling,
-            TransitionReason::CandidateInvalidated,
-        )),
-        DieLifecycle::Recovery if state.state_seconds >= config.recovery_seconds => Some((
-            DieLifecycle::Bouncing,
-            TransitionReason::RecoveryImpulseComplete,
-        )),
+        DieLifecycle::RestCandidate
+            if !is_target_candidate(observation, config) && inside_capture(observation, config) =>
+        {
+            Some((
+                DieLifecycle::GuidedSettling,
+                TransitionReason::CandidateInvalidated,
+            ))
+        }
+        DieLifecycle::RestCandidate if !is_target_candidate(observation, config) => {
+            recovery_or_failure(state, TransitionReason::LeftCaptureRegion, config)
+        }
+        DieLifecycle::Recovery if state.recovery_airborne && observation.tray_contact => {
+            Some((DieLifecycle::Bouncing, TransitionReason::RecoveryContact))
+        }
+        DieLifecycle::Recovery if state.state_seconds >= config.recovery_timeout_seconds => {
+            Some((DieLifecycle::Bouncing, TransitionReason::RecoveryTimedOut))
+        }
         _ => None,
     }
 }
 
 fn can_begin_guidance(observation: DieObservation, config: &DirectedPhysicsConfig) -> bool {
+    low_energy_near_tray(observation, config) && inside_capture(observation, config)
+}
+
+fn needs_recovery(observation: DieObservation, config: &DirectedPhysicsConfig) -> bool {
+    low_energy_near_tray(observation, config) && !inside_capture(observation, config)
+}
+
+fn low_energy_near_tray(observation: DieObservation, config: &DirectedPhysicsConfig) -> bool {
     config.guidance_enabled
         && observation.tray_contact
         && observation.position_y <= config.near_tray_height
         && observation.linear_speed <= config.guidance_linear_speed
         && observation.angular_speed <= config.guidance_angular_speed
+}
+
+fn inside_capture(observation: DieObservation, config: &DirectedPhysicsConfig) -> bool {
+    observation.upward_face == observation.target_face
+        && observation.angular_error <= config.capture_angular_error
 }
 
 fn is_target_candidate(observation: DieObservation, config: &DirectedPhysicsConfig) -> bool {
@@ -170,4 +207,19 @@ fn meaningful_disturbance(observation: DieObservation, config: &DirectedPhysicsC
     !observation.tray_contact
         || observation.linear_speed >= config.disturbance_linear_speed
         || observation.angular_speed >= config.disturbance_angular_speed
+}
+
+fn recovery_or_failure(
+    state: &DieState,
+    recovery_reason: TransitionReason,
+    config: &DirectedPhysicsConfig,
+) -> Option<(DieLifecycle, TransitionReason)> {
+    if state.recovery_count >= config.recovery_budget {
+        Some((
+            DieLifecycle::Failed,
+            TransitionReason::RecoveryBudgetExhausted,
+        ))
+    } else {
+        Some((DieLifecycle::Recovery, recovery_reason))
+    }
 }

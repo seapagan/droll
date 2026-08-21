@@ -7,6 +7,9 @@ use bevy::{
 /// Half the edge length of the generated d6.
 pub const D6_HALF_EXTENT: f32 = 0.5;
 
+/// Smallest tilt from a face center to an adjacent-face support boundary.
+pub const D6_MIN_FACE_BOUNDARY_ANGLE: f32 = std::f32::consts::FRAC_PI_4;
+
 /// Reusable metadata for one d6 face.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct D6Face {

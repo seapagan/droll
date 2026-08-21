@@ -7,7 +7,7 @@ mod state;
 use avian3d::prelude::PhysicsSystems;
 use bevy::{app::FixedPostUpdate, prelude::*};
 
-pub use controller::{DirectedDie, DirectedPhysicsConfig, directed_d6_components};
+pub use controller::{DirectedDie, DirectedPhysicsConfig, TraySurface, directed_d6_components};
 pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
 pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
 
