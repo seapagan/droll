@@ -19,11 +19,13 @@ was therefore the normal outcome-selection mechanism, not an exceptional
 pathology path.
 
 The late-guided-settling/recovery architecture is rejected. The approved
-replacement hypothesis is H1 symmetry-conditioned launch families: only the
+replacement hypothesis was H1 symmetry-conditioned launch families: only the
 initial proper body-local solid symmetry may depend on the target, and all
-post-spawn motion and settling must be unassisted. H1 remains unproven. d20,
-multi-die, and later phases remain prohibited until the replacement d6 gate
-passes its automated, platform, and owner-review requirements.
+post-spawn motion and settling must be unassisted. The bounded H1 implementation
+at `623986844597b96f306c87c5dfa83f1c7689c67e` achieved 216/216 correct
+unassisted faces but **failed its mandatory
+paired physical-trajectory-equivalence gate**. H1 is therefore at STOP before
+the Linux visual checkpoint. d20, multi-die, and later phases remain prohibited.
 
 ## Candidate provenance and fixed configuration
 
@@ -167,18 +169,110 @@ The repeated recovery hops were visibly targeted and failed the owner review.
 Their systemic correctness cannot waive that result. These case IDs remain as
 reproducers and negative evidence for the rejected architecture.
 
-## Review commands
+## H1 symmetry-conditioned d6 experiment
+
+### Pure symmetry premise
+
+The project-owned d6 implementation enumerates all 24 proper cube rotations.
+Focused tests prove determinant +1, cube-vertex preservation, face-normal
+bijection, opposite-face preservation, every ordered target/base mapping,
+collider mass/center/inertia equivalence, and exclusion of render-only pips from
+collider mass properties. A non-commuting quaternion probe verifies the live
+Bevy/glam multiplication convention. Every nominal and orientation-nuisance
+case constructs `Q_variant = P * Q_base` before right-composing the local
+symmetry as `Q_target = Q_variant * S`.
+
+### Bounded launch-family search
+
+The search grid contained exactly 64 target-independent combinations: 16 in
+each of four energetic regions. It stopped after considering five combinations
+because one passing family had been found in every region. No search state,
+velocity, nuisance, or family selection used a target face.
+
+| Result | Search ID | Runtime family | Natural face | Reason |
+|---|---|---|---:|---|
+| Rejected | `search-00-high-tumble` | — | 5 nominal | +1% angular nuisance changed face 5 to 4 |
+| Accepted | `search-01-high-tumble` | `h1-family-a` | 6 | 9/9 nominal/nuisance states retained face 6 |
+| Accepted | `search-16-side-spin` | `h1-family-b` | 3 | 9/9 retained face 3 |
+| Accepted | `search-32-overhead-tumble` | `h1-family-c` | 1 | 9/9 retained face 1 |
+| Accepted | `search-48-diagonal-spin` | `h1-family-d` | 3 | 9/9 retained face 3 |
+
+The preregistered nuisance IDs were used unchanged: nominal, world X position
+plus/minus 0.01 m, world `(1,1,0)` orientation plus/minus 0.5 degrees, linear
+velocity times 1.01/0.99, and angular velocity times 1.01/0.99. Accepted-family
+first tray contact was 0.633-0.817 s; natural completion was 1.817-2.917 s;
+peak linear speed was 5.7583-7.5031; and peak angular speed was 8.8834-12.0201.
+All accepted states had meaningful airborne/tumbling motion and tray contact.
+
+### H1 lifecycle and all-face corpus
+
+Mode `symmetry-launch` uses the isolated lifecycle
+`Spawned -> FreeThrow -> Bouncing -> RestCandidate -> Revealed/Failed`.
+Its plugin has no force/torque writer and no guidance, recovery, retry,
+post-spawn transform write, or kinematic path. Target-independent position,
+linear velocity, angular velocity, and nuisance state are applied unchanged;
+only the selected initial proper body-local symmetry varies by target. Unknown
+mode values exit explicitly rather than falling back to Candidate D.
+
+All four families completed all six targets across nominal plus eight nuisance
+states: **216/216 correct faces**, zero timeout, zero wrong face, zero recovery,
+and exactly zero recorded post-spawn target-aware force, torque, work, or
+intervention. Maximum completion was 1.969 s for family A, 2.234 s for family B,
+3.016 s for family C, and 2.406 s for family D. Group summaries remain in the
+CSV; raw per-step traces remain untracked build evidence.
+
+### Paired trajectory-equivalence failure
+
+The paired test runs a target-independent geometric control and canonicalizes
+the target orientation as:
+
+```text
+Q_canonical(t) = normalize(Q_target(t) * inverse(S))
+```
+
+The same-build tolerances were 0.01 m world position, 0.02 m/s linear velocity,
+0.02 rad/s angular velocity, 0.01 rad sign-invariant canonical orientation,
+and one fixed update for completion classification. These are deliberately much
+larger than pure `f32` geometry error while remaining small relative to the
+one-metre die and 5.76-7.50 / 8.88-12.02 energetic speed ranges.
+
+The first paired nominal comparison, `h1-family-a`, target 1 versus its
+target-independent control, diverged after contact. Linear velocity first
+exceeded tolerance at trace step 47. Across the paired trace, maximum deltas
+were:
+
+- world position: 0.01532233 m;
+- linear velocity: 0.22150882 m/s;
+- angular velocity: 0.61894333 rad/s;
+- canonical orientation: 0.02007314 rad; and
+- completion: 107 versus 106 trace samples, one fixed update apart.
+
+Contact counts remained paired through the compared trace and both runs reached
+the correct face, but the physical-field deltas materially exceeded every
+numeric tolerance. The test fails before checking later target pairs. Under the
+approved H1 contract this is evidence that the live convex-collider/solver path
+does not preserve the required same-build physical trajectory equivalence from
+the symmetry premise. Correct terminal faces cannot waive this gate.
+
+H1 verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE**. The implementation and
+negative evidence are preserved. Tolerances were not loosened; no early
+steering, recovery, collider workaround, dependency, target-specific launch
+state, or architecture expansion was added. The Linux owner visual checkpoint
+was not reached, so there is no H1 visual command, observation, or owner verdict
+to report.
+
+## Historical Candidate D review commands
 
 ```console
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --case d6-1-high-tumble
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --case d6-2-awkward-low-energy
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --case d6-4-side-spin
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --case d6-5-awkward-low-energy
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --case d6-6-side-spin
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --case recovery-bad-orientation
-cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --case recovery-edge
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-1-high-tumble
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-2-awkward-low-energy
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-4-side-spin
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-5-awkward-low-energy
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-6-side-spin
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d --case recovery-bad-orientation
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d --case recovery-edge
 ```
 
 ## Platform and checkpoint verdict
@@ -188,7 +282,7 @@ driver 595.84. macOS arm64, macOS Intel, Windows native/manual evidence, d20,
 multi-die, keep/drop, and final Stage 1 GO/STOP remain later gates. Linux xwin
 0.23.1 remains supplementary compile/check/Clippy evidence only.
 
-Checkpoint verdict: **FAIL / OWNER-REJECTED FOR CANDIDATE D**. The
-late-guided-settling/recovery architecture is rejected; H1 is the approved
-replacement hypothesis. Candidate B/D measurements remain historical negative
-evidence and do not constitute H1 evidence or approval.
+Candidate D checkpoint verdict: **FAIL / OWNER-REJECTED**. H1 replacement
+checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
+REVIEW**. Candidate B/D and H1 measurements remain historical negative evidence;
+none constitutes visual approval or authority to begin d20.
