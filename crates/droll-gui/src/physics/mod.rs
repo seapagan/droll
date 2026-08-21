@@ -1,6 +1,7 @@
 //! Directed rigid-body settling used by the bounded Stage 1 spike.
 
 mod controller;
+mod launch;
 mod metrics;
 mod state;
 
@@ -8,6 +9,10 @@ use avian3d::prelude::PhysicsSystems;
 use bevy::{app::FixedPostUpdate, prelude::*};
 
 pub use controller::{DirectedDie, DirectedPhysicsConfig, TraySurface, directed_d6_components};
+pub use launch::{
+    D6LaunchCandidate, D6LaunchFamily, D6LaunchState, LaunchKind, LaunchNuisance,
+    d6_launch_search_candidates, d6_passing_launch_families,
+};
 pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
 pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
 
