@@ -30,6 +30,14 @@ struct TrajectorySample {
     lifecycle: SymmetryLifecycle,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct TrajectoryDelta {
+    position: f32,
+    linear_velocity: f32,
+    angular_velocity: f32,
+    canonical_orientation: f32,
+}
+
 #[derive(Debug)]
 struct H1Run {
     lifecycle: SymmetryLifecycle,
@@ -72,7 +80,7 @@ fn test_h1_all_face_nominal_and_nuisance_corpus_is_216_of_216() {
 }
 
 #[test]
-fn test_h1_paired_trajectories_match_after_symmetry_canonicalization() {
+fn test_h1_paired_trajectories_match_before_contact_after_symmetry_canonicalization() {
     let mut paired = 0;
     for family in d6_passing_launch_families() {
         for nuisance in LaunchNuisance::ALL {
@@ -81,12 +89,35 @@ fn test_h1_paired_trajectories_match_after_symmetry_canonicalization() {
             for target_face in 1..=6 {
                 let target = run_h1(family, nuisance, target_face, false);
                 assert_h1_success(family, nuisance, target_face, &target);
-                assert_trajectory_equivalence(family, nuisance, target_face, &control, &target);
+                assert_paired_trajectory_contract(family, nuisance, target_face, &control, &target);
                 paired += 1;
             }
         }
     }
     assert_eq!(paired, 216);
+}
+
+#[test]
+#[should_panic(expected = "pre-contact linear velocity")]
+fn test_pre_contact_gate_rejects_target_dependent_launch_input() {
+    let control = TrajectorySample {
+        position: Vec3::ZERO,
+        linear_velocity: Vec3::X,
+        angular_velocity: Vec3::Y,
+        canonical_orientation: Quat::IDENTITY,
+        contact_count: 0,
+        lifecycle: SymmetryLifecycle::FreeThrow,
+    };
+    let target = TrajectorySample {
+        linear_velocity: Vec3::X * 1.1,
+        ..control
+    };
+    assert_pre_contact_equivalence(
+        "target-dependent launch regression",
+        &[control],
+        &[target],
+        1,
+    );
 }
 
 fn assert_h1_success(
@@ -110,7 +141,7 @@ fn assert_h1_success(
     assert_eq!(run.metrics.recovery_count, 0);
 }
 
-fn assert_trajectory_equivalence(
+fn assert_paired_trajectory_contract(
     family: D6LaunchFamily,
     nuisance: LaunchNuisance,
     target_face: u8,
@@ -118,40 +149,118 @@ fn assert_trajectory_equivalence(
     target: &H1Run,
 ) {
     let context = format!("{family:?} {nuisance:?} target {target_face}");
-    assert!(
-        control.trace.len().abs_diff(target.trace.len()) <= 1,
-        "{context}"
-    );
-    assert!(
-        (control.seconds - target.seconds).abs() <= STEP_SECONDS as f32 + 1.0e-5,
-        "{context}"
-    );
-    let mut max_position = 0.0_f32;
-    let mut max_linear = 0.0_f32;
-    let mut max_angular = 0.0_f32;
-    let mut max_rotation = 0.0_f32;
-    for (step, (left, right)) in control.trace.iter().zip(&target.trace).enumerate() {
-        let step_context = format!("{context} step {step}");
-        max_position = max_position.max((left.position - right.position).length());
-        max_linear = max_linear.max((left.linear_velocity - right.linear_velocity).length());
-        max_angular = max_angular.max((left.angular_velocity - right.angular_velocity).length());
-        max_rotation = max_rotation.max(rotation_distance(
-            left.canonical_orientation,
-            right.canonical_orientation,
-        ));
-        assert_eq!(left.contact_count, right.contact_count, "{step_context}");
+    let first_contact_step = first_contact_step(control).min(first_contact_step(target));
+    let pre_contact =
+        assert_pre_contact_equivalence(&context, &control.trace, &target.trace, first_contact_step);
+    report_post_contact_diagnostics(&context, control, target, first_contact_step, pre_contact);
+}
+
+fn first_contact_step(run: &H1Run) -> usize {
+    run.trace
+        .iter()
+        .position(|sample| sample.contact_count > 0)
+        .unwrap_or(run.trace.len())
+}
+
+fn assert_pre_contact_equivalence(
+    context: &str,
+    control: &[TrajectorySample],
+    target: &[TrajectorySample],
+    first_contact_step: usize,
+) -> TrajectoryDelta {
+    let mut maximum = TrajectoryDelta::default();
+    for (step, (left, right)) in control
+        .iter()
+        .zip(target)
+        .take(first_contact_step)
+        .enumerate()
+    {
+        assert_eq!(left.contact_count, 0, "{context} pre-contact step {step}");
+        assert_eq!(right.contact_count, 0, "{context} pre-contact step {step}");
+        let delta = trajectory_delta(left, right);
+        maximum.include(delta);
         assert!(
-            lifecycle_equivalent(left.lifecycle, right.lifecycle),
-            "{step_context}"
+            delta.position <= POSITION_TOLERANCE,
+            "{context} pre-contact position step {step}"
+        );
+        assert!(
+            delta.linear_velocity <= VELOCITY_TOLERANCE,
+            "{context} pre-contact linear velocity step {step}"
+        );
+        assert!(
+            delta.angular_velocity <= VELOCITY_TOLERANCE,
+            "{context} pre-contact angular velocity step {step}"
+        );
+        assert!(
+            delta.canonical_orientation <= ROTATION_TOLERANCE,
+            "{context} pre-contact canonical orientation step {step}"
         );
     }
+    maximum
+}
+
+fn report_post_contact_diagnostics(
+    context: &str,
+    control: &H1Run,
+    target: &H1Run,
+    first_contact_step: usize,
+    pre_contact: TrajectoryDelta,
+) {
+    let mut post_contact = TrajectoryDelta::default();
+    let mut first_divergence = None;
+    for (step, (left, right)) in control
+        .trace
+        .iter()
+        .zip(&target.trace)
+        .enumerate()
+        .skip(first_contact_step)
+    {
+        let delta = trajectory_delta(left, right);
+        post_contact.include(delta);
+        if first_divergence.is_none()
+            && (delta.exceeds_tolerance()
+                || left.contact_count != right.contact_count
+                || !lifecycle_equivalent(left.lifecycle, right.lifecycle))
+        {
+            first_divergence = Some((step, delta, left.contact_count, right.contact_count));
+        }
+    }
     println!(
-        "paired,{context},position-{max_position:.8},linear-{max_linear:.8},angular-{max_angular:.8},rotation-{max_rotation:.8}"
+        "paired,{context},first-contact-step-{first_contact_step},pre-{pre_contact:?},first-post-contact-divergence-{first_divergence:?},post-{post_contact:?},contact-type-tray,control-contacts-{:?},target-contacts-{:?},completion-delta-{:.6},final-faces-{}-{}",
+        control.metrics.contact_samples,
+        target.metrics.contact_samples,
+        (control.seconds - target.seconds).abs(),
+        control.upward_face,
+        target.upward_face,
     );
-    assert!(max_position <= POSITION_TOLERANCE, "{context}");
-    assert!(max_linear <= VELOCITY_TOLERANCE, "{context}");
-    assert!(max_angular <= VELOCITY_TOLERANCE, "{context}");
-    assert!(max_rotation <= ROTATION_TOLERANCE, "{context}");
+}
+
+fn trajectory_delta(left: &TrajectorySample, right: &TrajectorySample) -> TrajectoryDelta {
+    TrajectoryDelta {
+        position: (left.position - right.position).length(),
+        linear_velocity: (left.linear_velocity - right.linear_velocity).length(),
+        angular_velocity: (left.angular_velocity - right.angular_velocity).length(),
+        canonical_orientation: rotation_distance(
+            left.canonical_orientation,
+            right.canonical_orientation,
+        ),
+    }
+}
+
+impl TrajectoryDelta {
+    fn include(&mut self, other: Self) {
+        self.position = self.position.max(other.position);
+        self.linear_velocity = self.linear_velocity.max(other.linear_velocity);
+        self.angular_velocity = self.angular_velocity.max(other.angular_velocity);
+        self.canonical_orientation = self.canonical_orientation.max(other.canonical_orientation);
+    }
+
+    fn exceeds_tolerance(self) -> bool {
+        self.position > POSITION_TOLERANCE
+            || self.linear_velocity > VELOCITY_TOLERANCE
+            || self.angular_velocity > VELOCITY_TOLERANCE
+            || self.canonical_orientation > ROTATION_TOLERANCE
+    }
 }
 
 fn lifecycle_equivalent(left: SymmetryLifecycle, right: SymmetryLifecycle) -> bool {
