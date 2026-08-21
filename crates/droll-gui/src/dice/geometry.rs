@@ -114,7 +114,7 @@ pub fn d6_mesh() -> Mesh {
                 .map(|index| geometry.vertices[index].to_array()),
         );
         normals.extend([face.normal.to_array(); 4]);
-        indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+        indices.extend([base, base + 2, base + 1, base, base + 3, base + 2]);
     }
     Mesh::new(
         PrimitiveTopology::TriangleList,

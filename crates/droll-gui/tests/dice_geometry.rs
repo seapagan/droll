@@ -1,7 +1,11 @@
 use std::collections::BTreeSet;
 
-use bevy::{math::Quat, prelude::Vec3};
-use droll_gui::dice::{d6_geometry, d6_labels};
+use bevy::{
+    math::Quat,
+    mesh::{Indices, Mesh, VertexAttributeValues},
+    prelude::Vec3,
+};
+use droll_gui::dice::{d6_geometry, d6_labels, d6_mesh};
 
 const EPSILON: f32 = 1.0e-5;
 
@@ -24,6 +28,37 @@ fn test_d6_topology_and_values_are_complete() {
         assert!((c - a).cross(d - a).length() > EPSILON);
         assert!((face.normal.length() - 1.0).abs() < EPSILON);
         assert!(face.center.dot(face.normal) > 0.0);
+    }
+}
+
+#[test]
+fn test_d6_render_triangles_are_non_degenerate_and_outward_wound() {
+    let mesh = d6_mesh();
+    let positions = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(positions)) => positions,
+        _ => panic!("d6 mesh must have f32 positions"),
+    };
+    let normals = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(VertexAttributeValues::Float32x3(normals)) => normals,
+        _ => panic!("d6 mesh must have f32 normals"),
+    };
+    let indices = match mesh.indices() {
+        Some(Indices::U32(indices)) => indices,
+        _ => panic!("d6 mesh must have u32 indices"),
+    };
+
+    assert_eq!(indices.len(), 6 * 2 * 3);
+    for triangle in indices.chunks_exact(3) {
+        let [a_index, b_index, c_index] = triangle else {
+            unreachable!("chunks_exact returns three indices")
+        };
+        let a = Vec3::from_array(positions[*a_index as usize]);
+        let b = Vec3::from_array(positions[*b_index as usize]);
+        let c = Vec3::from_array(positions[*c_index as usize]);
+        let geometric_normal = (b - a).cross(c - a);
+        let declared_normal = Vec3::from_array(normals[*a_index as usize]);
+        assert!(geometric_normal.length() > EPSILON);
+        assert!(geometric_normal.dot(declared_normal) > 0.0);
     }
 }
 
