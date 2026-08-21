@@ -149,6 +149,15 @@ pub fn directed_d6_components(case: &SpikeCase) -> impl Bundle {
 }
 
 fn initial_motion(start: StartCase) -> (Vec3, Quat, Vec3, Vec3) {
+    if let Some(family) = start.symmetry_family() {
+        let state = family.candidate.state;
+        return (
+            state.position,
+            state.orientation,
+            state.linear_velocity,
+            state.angular_velocity,
+        );
+    }
     match start {
         StartCase::HighTumble => (
             Vec3::new(-1.4, 3.4, -0.8),
@@ -180,6 +189,10 @@ fn initial_motion(start: StartCase) -> (Vec3, Quat, Vec3, Vec3) {
             Vec3::new(-0.2, 0.0, 0.0),
             Vec3::new(0.1, 0.2, 0.1),
         ),
+        StartCase::SymmetryFamilyA
+        | StartCase::SymmetryFamilyB
+        | StartCase::SymmetryFamilyC
+        | StartCase::SymmetryFamilyD => unreachable!("handled above"),
     }
 }
 

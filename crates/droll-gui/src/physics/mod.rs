@@ -1,9 +1,10 @@
-//! Directed rigid-body settling used by the bounded Stage 1 spike.
+//! Candidate D and H1 rigid-body paths used by the bounded Stage 1 spike.
 
 mod controller;
 mod launch;
 mod metrics;
 mod state;
+mod symmetry_launch;
 
 use avian3d::prelude::PhysicsSystems;
 use bevy::{app::FixedPostUpdate, prelude::*};
@@ -15,6 +16,11 @@ pub use launch::{
 };
 pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
 pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
+pub use symmetry_launch::{
+    ContactSample, SymmetryDie, SymmetryDieState, SymmetryLifecycle, SymmetryMetrics,
+    SymmetryPhysicsConfig, SymmetryPhysicsPlugin, SymmetryTerminalReason, symmetry_d6_components,
+    symmetry_d6_control_components,
+};
 
 use controller::{apply_directed_forces, observe_directed_dice};
 
