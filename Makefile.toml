@@ -107,6 +107,72 @@ args = [
     "binary_id(=droll-gui::gui_scaffold) & test(=gui_scaffold)",
 ]
 
+[tasks._require-linux]
+private = true
+script_runner = "@duckscript"
+script = '''
+if not equals ${CARGO_MAKE_RUST_TARGET_OS} linux
+    echo "error: this task requires Linux; current host is ${CARGO_MAKE_RUST_TARGET_OS}"
+    exit 1
+end
+'''
+
+[tasks.xwin-check]
+description = "Cross-check the complete Windows MSVC workspace from Linux"
+dependencies = ["_require-linux"]
+command = "cargo"
+args = [
+    "xwin",
+    "check",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--target",
+    "x86_64-pc-windows-msvc",
+]
+
+[tasks.xwin-clippy]
+description = "Run blocking Clippy for the complete Windows MSVC workspace from Linux"
+dependencies = ["_require-linux"]
+command = "cargo"
+args = [
+    "xwin",
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--target",
+    "x86_64-pc-windows-msvc",
+    "--",
+    "-D",
+    "warnings",
+    "-A",
+    "clippy::too_many_lines",
+    "-A",
+    "clippy::too_many_arguments",
+]
+
+[tasks.xwin-build]
+description = "Cross-build the complete Windows MSVC workspace from Linux"
+dependencies = ["_require-linux"]
+command = "cargo"
+args = [
+    "xwin",
+    "build",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--locked",
+    "--target",
+    "x86_64-pc-windows-msvc",
+]
+
+[tasks.verify-xwin]
+description = "Run all Linux-hosted Windows MSVC cross-target checks"
+dependencies = ["_require-linux", "xwin-check", "xwin-clippy", "xwin-build"]
+
 [tasks.prepare-coverage]
 private = true
 script_runner = "@duckscript"
@@ -200,5 +266,13 @@ description = "Lint and audit GitHub Actions workflows"
 dependencies = ["actions-lint", "zizmor"]
 
 [tasks.verify]
-description = "Run the comprehensive current-toolchain local gate, including advisory quality"
-dependencies = ["verify-native", "quality", "coverage", "policy", "workflow-policy"]
+description = "Run the comprehensive Linux-hosted current-toolchain gate"
+dependencies = [
+    "_require-linux",
+    "verify-native",
+    "verify-xwin",
+    "quality",
+    "coverage",
+    "policy",
+    "workflow-policy",
+]

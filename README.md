@@ -46,6 +46,30 @@ macOS requires the Xcode command-line tools. Windows requires the MSVC C++ build
 tools and Windows SDK. No Homebrew, MinGW, Vulkan SDK, or cross-compilation
 toolchain is required by the Stage 0 baseline.
 
+### Linux-hosted Windows verification
+
+Linux developers can supplement the native Windows CI gate by checking,
+running blocking Clippy, and building the complete workspace for
+`x86_64-pc-windows-msvc`. Install the exact approved tool and prerequisites:
+
+```console
+cargo install --locked cargo-xwin --version 0.23.1
+rustup component add llvm-tools
+rustup target add x86_64-pc-windows-msvc
+```
+
+Clang/LLVM is also required. On first use, cargo-xwin downloads and caches the
+Microsoft SDK and CRT; using them accepts Microsoft's applicable license terms.
+Run the supplementary gate with:
+
+```console
+cargo make verify-xwin
+```
+
+This is Linux-hosted compile, check, and Clippy evidence only. It does not run
+Windows executables and does not use Wine. Native Windows CI and deliberate
+real-window validation on Windows remain separate, stronger requirements.
+
 ## Development
 
 The pinned `rust-toolchain.toml` selects Rust 1.97.1 with rustfmt and Clippy.
@@ -68,8 +92,9 @@ cargo build --workspace --all-targets --all-features --locked
 `cargo-make` is the canonical task runner:
 
 ```console
-cargo make verify          # comprehensive gate, including advisory quality
+cargo make verify          # comprehensive Linux gate, including xwin and advisory quality
 cargo make verify-native   # format, lint, tests, build, docs, boundaries
+cargo make verify-xwin     # Linux-hosted Windows check, Clippy, and build
 cargo make quality         # non-blocking advisory maintainability checks
 cargo make msrv            # separate Rust 1.95.0 check and test gate
 cargo make policy          # advisory, license, source, and dependency policy
@@ -86,7 +111,9 @@ findings across Linux x86_64, both macOS architectures, and Windows x86_64.
 Coverage produces `target/llvm-cov/coverage.lcov`; Stage 0 does not set an
 arbitrary percentage threshold.
 
-`cargo make verify` includes the pedantic Zizmor workflow audit. Zizmor enables
+`cargo make verify` is Linux-hosted because it includes `verify-xwin` in
+addition to the portable native gate and the pedantic Zizmor workflow audit.
+Zizmor enables
 online audits automatically when `ZIZMOR_GITHUB_TOKEN`, `GH_TOKEN`, or
 `GITHUB_TOKEN` is available. Without one of those variables, it falls back to
 offline auditing, which skips online-only checks and therefore does not provide
