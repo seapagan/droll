@@ -33,8 +33,12 @@ equivalence remains blocking, while numerical divergence at and after contact
 is diagnostic unless it causes an actual H1 defect. The corrected test boundary
 at `d185919` passes all 216 paired cases without changing the prior tolerances,
 and the independent all-face corpus remains 216/216 with zero recovery or
-intervention. H1 has not received an owner visual verdict. d20, multi-die, and
-later phases remain prohibited.
+intervention. The owner reviewed the resulting Linux candidate at
+`1b20d531dcaf04198e068e69ba84382bff87a0f8` and recorded **PASS** on
+2026-08-21. That SHA is now the frozen H1 d6 behavior candidate for native
+cross-platform validation. macOS and Windows systemic and real-window evidence
+remain pending, so this is not Stage 1 approval. d20, multi-die, and later
+phases remain prohibited.
 
 ## Candidate provenance and fixed configuration
 
@@ -43,6 +47,8 @@ later phases remain prohibited.
 - Winding remediation: `fabc603`.
 - Candidate D behavior/configuration:
   `5faf74f5202eb0ed32e47c3a37080afe6683c247`.
+- Frozen H1 d6 behavior candidate:
+  `1b20d531dcaf04198e068e69ba84382bff87a0f8`.
 - Rust 1.97.1; MSRV 1.95.0; Bevy 0.19.1; Avian3D 0.7.0 with `3d`, `f32`, and
   `parry-f32` only. Avian parallel remains disabled.
 
@@ -307,10 +313,128 @@ Completion was 1.719-3.016 s; family maxima remained 1.969 s (A), 2.234 s (B),
 7.5031/11.4011. The family search was not rerun or expanded to replace any
 family.
 
-Corrected automated H1 verdict: **PASS / OWNER LINUX VISUAL VERDICT PENDING**.
-This automated result and any agent observation are not the required owner
-visual verdict. No d20 or cross-platform H1 validation is authorized before
-that later explicit owner decision.
+Corrected automated H1 verdict: **PASS**. This result establishes the blocking
+pre-contact and systemic gates; post-contact numerical divergence remains a
+recorded diagnostic rather than an independent failure.
+
+### Frozen H1 candidate and Linux visual approval
+
+The owner reviewed the release-window presentation at behavior candidate
+`1b20d531dcaf04198e068e69ba84382bff87a0f8` and recorded **Linux H1 visual
+checkpoint: PASS** on 2026-08-21. The review covered the predetermined
+family-major sequence `h1-family-a` through `h1-family-d`, with requested
+targets 1 through 6 within each family: 24 nominal cases in total.
+
+The owner found no obvious result-directed push, flip, hop, correction, or
+face-specific manipulation signature. Launch, collision, bounce, energy decay,
+and settling read as one continuous physical event. The preserved
+`h1-family-a` target-1 post-contact divergence looked visually ordinary,
+Family C's longer settling tail remained natural, and the four-family variation
+was sufficient for this Linux feasibility gate. The release-window completion
+range was 1.890625-2.718750 s, with zero recovery.
+
+At the frozen candidate, the Linux focused symmetry/search suite passed 13/13,
+the blocking paired pre-contact gate passed 216/216, and the independent corpus
+passed 216/216. Timeout, wrong-face, recovery/retry, and post-spawn target-aware
+force, torque, mechanical work, transform correction, or other intervention
+were all zero. The GUI scaffold (1/1), CLI boundary (6/6),
+`cargo make verify-native`, `cargo make verify-xwin`, `cargo make verify`,
+`cargo make msrv`, and `git diff --check` all passed. The detailed retained
+post-contact divergence ranges and the `h1-family-a` target-1 diagnostic remain
+in the preceding corrected-gate evidence.
+
+The reviewed Linux host was x86_64, kernel 6.11.0-29-generic, using Rust 1.97.1
+(`x86_64-unknown-linux-gnu`) and the release profile. Rendering used Vulkan on
+an NVIDIA GeForce RTX 4070 Ti SUPER with driver 595.84. The exact review command
+was:
+
+```console
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode symmetry-launch
+```
+
+This owner verdict completes the Linux visual checkpoint only. It does not
+approve Stage 1, waive required native macOS/Windows evidence, or authorize
+d20. The behavior/configuration at the frozen SHA must remain identical across
+hosts. Any change to launch-family parameters, symmetry mappings, the nuisance
+corpus, physics, geometry/colliders, rest/completion behavior, dependencies,
+features, or other executable d6 behavior invalidates the freeze and requires a
+new frozen SHA plus repeated Linux automated and owner visual validation.
+
+### Frozen-candidate native validation procedure
+
+Every host must check out the exact frozen behavior candidate
+`1b20d531dcaf04198e068e69ba84382bff87a0f8`; evidence-only descendants are
+acceptable only after verifying that their executable/configuration diff from
+that SHA is empty. Use the checked-in Rust 1.97.1 minimal toolchain with
+`rustfmt` and `clippy`, Cargo Make 0.37.24, Cargo Nextest 0.9.143, and the
+committed `Cargo.lock`. The separate Linux MSRV gate remains Rust 1.95.0. Do
+not introduce host-specific launch tables, physics settings, or tuning.
+
+Run the focused gates on each native host:
+
+```console
+cargo test -p droll-gui --locked --test dice_geometry --test symmetry_launch_search
+cargo test -p droll-gui --locked --test symmetry_launch test_h1_paired_trajectories_match_before_contact_after_symmetry_canonicalization -- --exact --nocapture
+cargo test -p droll-gui --locked --test symmetry_launch test_h1_all_face_nominal_and_nuisance_corpus_is_216_of_216 -- --exact --nocapture
+cargo make verify-native
+```
+
+`cargo make verify-native` is the existing canonical native gate. Its
+workspace/all-targets/all-features Nextest invocation naturally executes the
+H1 integration tests, including the corrected paired gate, its target-dependent
+launch regression, and the full corpus. The checked-in `CI` workflow already
+runs this gate natively on `ubuntu-24.04` (`x86_64-unknown-linux-gnu`),
+`macos-15` (`aarch64-apple-darwin`), `macos-15-intel`
+(`x86_64-apple-darwin`), and `windows-2025`
+(`x86_64-pc-windows-msvc`). No Stage-1-specific workflow invocation is needed.
+Linux `cargo make verify-xwin` remains supplementary cross-target evidence and
+cannot replace the Windows native job.
+
+On every required real-window host, run the same presentation command shown
+above and review the same 24 nominal cases in family-major A/B/C/D order and
+target order 1-6. Record:
+
+- exact commit and confirmation that behavior matches the frozen SHA;
+- OS version, native architecture/triple, Rust and Cargo versions, release
+  profile, GPU/adapter, driver, graphics backend, and display/window session;
+- all focused and `verify-native` results, paired first-contact boundary and
+  pre-contact maxima, post-contact divergence ranges/contact diagnostics,
+  216/216 corpus count, family completion ranges, peak speeds, terminal faces,
+  timeout/wrong-face count, and recovery/intervention/work counters; and
+- reviewer, date, PASS/FAIL, case ordering, and observations of launch and
+  settling naturalness, family variation, any obvious staged initial
+  orientation, target-directed or face-specific manipulation, platform-specific
+  pathological bouncing/settling, and agreement between requested and final
+  physical face.
+
+A native configuration passes only when the frozen SHA and toolchain/host are
+confirmed, all focused and native gates pass, every corpus face is correct,
+pre-contact paired equivalence passes, and timeout, wrong-face, recovery/retry,
+and post-spawn target-aware intervention/work remain zero. Post-contact numeric
+divergence is retained diagnostically and fails only when it exposes a real H1
+defect. Its separate human real-window verdict must also pass. STOP on a SHA or
+behavior mismatch, material pre-contact divergence, wrong face, timeout,
+recovery/retry, intervention/work, need for platform-specific tuning, staged
+orientation that is visually obvious, target-directed manipulation, or
+pathological native motion. A
+host without native real-window access remains pending or unavailable; hosted
+headless success is not a human visual verdict.
+
+| Required native configuration | Systemic evidence | Real-window evidence | Overall |
+|---|---|---|---|
+| Linux x86_64 | Passed: corrected gates, 216/216, full local quality suite | Passed: owner, 2026-08-21 | **Passed** |
+| macOS Apple Silicon | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
+| macOS Intel | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
+| Windows x86_64 MSVC | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
+
+The local Linux evidence at the frozen candidate also includes passing
+`cargo make verify-xwin`, `cargo make verify`, `cargo make msrv`, and
+`git diff --check`. Those results preserve the existing dependency, native CI,
+MSRV, policy, and cargo-xwin 0.23.1 boundaries, but do not fill any native
+macOS/Windows cell. The branch has no upstream and remains unpublished. The
+native hosted matrix cannot test this candidate until separately authorized
+publication makes it reachable by an eligible pull-request or manual workflow
+dispatch.
 
 ## Historical Candidate D review commands
 
@@ -335,7 +459,8 @@ multi-die, keep/drop, and final Stage 1 GO/STOP remain later gates. Linux xwin
 
 Candidate D checkpoint verdict: **FAIL / OWNER-REJECTED**. H1 replacement
 initial checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
-REVIEW**. The corrected pre-contact gate and 216/216 corpus pass, but the H1
-owner Linux visual verdict remains pending. Candidate B/D and the original H1
-STOP remain historical evidence; neither automation nor agent observation
-constitutes visual approval or authority to begin d20.
+REVIEW**. The corrected pre-contact gate, 216/216 corpus, and Linux owner visual
+checkpoint now pass at the frozen behavior candidate. Candidate B/D and the
+original H1 STOP remain historical evidence. Required macOS and Windows
+systemic and human real-window evidence remain pending, so Stage 1 is not GO
+and d20 remains prohibited.

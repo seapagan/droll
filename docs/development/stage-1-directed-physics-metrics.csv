@@ -82,3 +82,4 @@ linux-x86_64,debug,h1-family-a,d6-h1-corrected-corpus,search-01-base-6-all-varia
 linux-x86_64,debug,h1-family-b,d6-h1-corrected-corpus,search-16-base-3-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,2.234,,,,0.0000,,,,
 linux-x86_64,debug,h1-family-c,d6-h1-corrected-corpus,search-32-base-1-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,3.016,,,,0.0000,,,,
 linux-x86_64,debug,h1-family-d,d6-h1-corrected-corpus,search-48-base-3-all-variants,1-6,54/54,systemic-pass-corrected-gate,0,2.406,,,,0.0000,,,,
+linux-x86_64,release,h1-frozen-1b20d53,d6-h1-visual,all-24-nominal,1-6,24/24,owner-visual-pass,0,2.719,,,,0.0000,,,,
