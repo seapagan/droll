@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
+use avian3d::prelude::{Collider, ComputeMassProperties3d};
 use bevy::{
     math::Quat,
     mesh::{Indices, Mesh, VertexAttributeValues},
     prelude::Vec3,
 };
-use droll_gui::dice::{d6_geometry, d6_labels, d6_mesh};
+use droll_gui::dice::{d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries, d6_symmetry_mapping};
 
 const EPSILON: f32 = 1.0e-5;
 
@@ -100,4 +101,125 @@ fn test_d6_labels_follow_face_bases_without_z_fighting() {
 #[test]
 fn test_upward_face_is_stable_for_identity_rotation() {
     assert_eq!(d6_geometry().upward_face(Quat::IDENTITY).value, 1);
+}
+
+#[test]
+fn test_d6_symmetry_group_contains_24_proper_rotations() {
+    let symmetries = d6_solid_symmetries();
+    assert_eq!(symmetries.len(), 24);
+    for symmetry in symmetries {
+        let matrix = bevy::math::Mat3::from_quat(symmetry.rotation);
+        assert!((matrix.determinant() - 1.0).abs() < EPSILON);
+        assert!((symmetry.rotation.length() - 1.0).abs() < EPSILON);
+    }
+}
+
+#[test]
+fn test_d6_symmetries_preserve_vertices_faces_and_opposites() {
+    let geometry = d6_geometry();
+    for symmetry in d6_solid_symmetries() {
+        assert_same_vertex_set(
+            geometry.vertices,
+            geometry.vertices.map(|vertex| symmetry.rotation * vertex),
+        );
+        let mapped = geometry
+            .faces
+            .map(|face| symmetry.map_face(face).value)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(mapped, BTreeSet::from([1, 2, 3, 4, 5, 6]));
+        for face in geometry.faces {
+            let opposite = geometry
+                .faces
+                .into_iter()
+                .find(|candidate| candidate.normal == -face.normal)
+                .expect("every d6 face has an opposite");
+            assert_eq!(
+                symmetry.map_face(opposite).normal,
+                -symmetry.map_face(face).normal
+            );
+        }
+    }
+}
+
+#[test]
+fn test_d6_symmetry_maps_every_ordered_face_pair() {
+    for target in 1..=6 {
+        for base in 1..=6 {
+            let symmetry = d6_symmetry_mapping(target, base).expect("mapping exists");
+            assert_eq!(
+                symmetry
+                    .map_face(d6_geometry().face(target).expect("target exists"))
+                    .value,
+                base
+            );
+        }
+    }
+}
+
+#[test]
+fn test_quaternion_composition_applies_right_operand_first() {
+    let world_y = Quat::from_rotation_y(0.7);
+    let local_x = Quat::from_rotation_x(0.4);
+    let probe = Vec3::new(0.2, 0.6, -0.7).normalize();
+    assert!(((world_y * local_x) * probe - world_y * (local_x * probe)).length() < EPSILON);
+    assert!(((world_y * local_x) * probe - (local_x * world_y) * probe).length() > 0.1);
+}
+
+#[test]
+fn test_target_symmetry_follows_target_independent_orientation_nuisance() {
+    let geometry = d6_geometry();
+    let base_face = 3;
+    let base_rotation = Quat::from_euler(bevy::math::EulerRot::XYZ, 0.4, -0.2, 0.9);
+    let nuisance_axis = Vec3::new(1.0, 1.0, 0.0).normalize();
+    for angle in [0.0, 0.5_f32.to_radians(), (-0.5_f32).to_radians()] {
+        let nuisance = Quat::from_axis_angle(nuisance_axis, angle);
+        let variant = nuisance * base_rotation;
+        for target in 1..=6 {
+            let symmetry = d6_symmetry_mapping(target, base_face).expect("mapping exists");
+            let mapped = variant * symmetry.rotation;
+            assert_same_vertex_set(
+                geometry.vertices.map(|vertex| variant * vertex),
+                geometry.vertices.map(|vertex| mapped * vertex),
+            );
+            let target_normal = geometry.face(target).expect("target exists").normal;
+            let base_normal = geometry.face(base_face).expect("base exists").normal;
+            assert!(((mapped * target_normal) - (variant * base_normal)).length() < EPSILON);
+        }
+    }
+}
+
+#[test]
+fn test_d6_symmetry_keeps_collider_mass_properties_and_pips_render_only() {
+    let geometry = d6_geometry();
+    let collider = Collider::convex_hull(geometry.collider_vertices()).expect("valid hull");
+    let baseline = collider.mass_properties(1.0);
+    assert_eq!(d6_labels().len(), 21);
+    for symmetry in d6_solid_symmetries() {
+        let transformed = Collider::convex_hull(
+            geometry
+                .vertices
+                .map(|vertex| symmetry.rotation * vertex)
+                .to_vec(),
+        )
+        .expect("symmetry preserves hull");
+        let properties = transformed.mass_properties(1.0);
+        assert!((properties.mass - baseline.mass).abs() < EPSILON);
+        assert!((properties.center_of_mass - baseline.center_of_mass).length() < EPSILON);
+        assert!(
+            (properties.principal_angular_inertia - baseline.principal_angular_inertia).length()
+                < EPSILON
+        );
+    }
+}
+
+fn assert_same_vertex_set(left: [Vec3; 8], right: [Vec3; 8]) {
+    for vertex in left {
+        assert!(
+            right
+                .iter()
+                .any(|candidate| (*candidate - vertex).length() < EPSILON),
+            "missing vertex {vertex:?} in {right:?}"
+        );
+    }
 }
