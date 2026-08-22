@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use avian3d::prelude::{Collider, ComputeMassProperties3d};
 use bevy::{
@@ -6,9 +6,182 @@ use bevy::{
     mesh::{Indices, Mesh, VertexAttributeValues},
     prelude::Vec3,
 };
-use droll_gui::dice::{d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries, d6_symmetry_mapping};
+use droll_gui::dice::{
+    D20_FACE_TO_FACE, d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries, d6_symmetry_mapping,
+    d20_geometry, d20_labels, d20_mesh,
+};
 
 const EPSILON: f32 = 1.0e-5;
+const D20_EPSILON: f32 = 2.0e-5;
+
+#[test]
+fn test_d20_topology_is_a_finite_regular_icosahedron() {
+    let geometry = d20_geometry();
+    assert_eq!(geometry.vertices.len(), 12);
+    assert_eq!(geometry.faces.len(), 20);
+    assert_eq!(geometry.undirected_edges().len(), 30);
+    assert_eq!(12_i32 - 30 + 20, 2);
+    for (index, vertex) in geometry.vertices.iter().enumerate() {
+        assert!(
+            geometry.vertices[index + 1..]
+                .iter()
+                .all(|candidate| vertex.distance(*candidate) > D20_EPSILON)
+        );
+    }
+    assert!(geometry.vertices.iter().all(|vertex| vertex.is_finite()));
+
+    let mut edge_counts = BTreeMap::new();
+    let mut vertex_degrees: [BTreeSet<usize>; 12] = std::array::from_fn(|_| BTreeSet::new());
+    for face in geometry.faces {
+        let [a, b, c] = face.vertices;
+        for (left, right) in [(a, b), (b, c), (c, a)] {
+            let edge = (left.min(right), left.max(right));
+            *edge_counts.entry(edge).or_insert(0) += 1;
+            vertex_degrees[left].insert(right);
+            vertex_degrees[right].insert(left);
+        }
+    }
+    assert!(edge_counts.values().all(|count| *count == 2));
+    assert!(
+        vertex_degrees
+            .iter()
+            .all(|neighbours| neighbours.len() == 5)
+    );
+
+    let lengths = geometry
+        .undirected_edges()
+        .into_iter()
+        .map(|(a, b)| geometry.vertices[a].distance(geometry.vertices[b]))
+        .collect::<Vec<_>>();
+    assert!(
+        lengths
+            .iter()
+            .all(|length| (*length - lengths[0]).abs() < D20_EPSILON)
+    );
+}
+
+#[test]
+fn test_d20_faces_share_one_numbering_geometry_source() {
+    let geometry = d20_geometry();
+    assert_eq!(D20_FACE_TO_FACE, 1.0);
+    assert_eq!(
+        geometry
+            .faces
+            .iter()
+            .map(|face| face.value)
+            .collect::<BTreeSet<_>>(),
+        (1..=20).collect()
+    );
+    for face in geometry.faces {
+        let [a, b, c] = face.vertices.map(|index| geometry.vertices[index]);
+        let geometric_normal = (b - a).cross(c - a).normalize();
+        assert!(face.normal.is_finite());
+        assert!((face.normal.length() - 1.0).abs() < D20_EPSILON);
+        assert!(face.normal.dot(face.center) > 0.0);
+        assert!(face.normal.dot(geometric_normal) > 1.0 - D20_EPSILON);
+        assert!((face.center.length() - 0.5).abs() < D20_EPSILON);
+        assert_eq!(face.value + face.opposite_value, 21);
+        assert_eq!(
+            face.adjacent_values
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+                .len(),
+            3
+        );
+        assert!(
+            face.adjacent_values
+                .iter()
+                .all(|value| *value != face.value)
+        );
+        assert!(face.label_right.dot(face.normal).abs() < D20_EPSILON);
+        assert!(face.label_up.dot(face.normal).abs() < D20_EPSILON);
+        assert!(face.label_right.cross(face.label_up).dot(face.normal) > 1.0 - D20_EPSILON);
+    }
+}
+
+#[test]
+fn test_d20_render_mesh_is_outward_wound() {
+    let mesh = d20_mesh();
+    let positions = mesh_positions(&mesh, "d20");
+    let normals = mesh_normals(&mesh, "d20");
+    let indices = mesh_indices(&mesh, "d20");
+    assert_eq!(positions.len(), 60);
+    assert_eq!(indices.len(), 60);
+    for triangle in indices.chunks_exact(3) {
+        let a = Vec3::from_array(positions[triangle[0] as usize]);
+        let b = Vec3::from_array(positions[triangle[1] as usize]);
+        let c = Vec3::from_array(positions[triangle[2] as usize]);
+        let declared = Vec3::from_array(normals[triangle[0] as usize]);
+        assert!((b - a).cross(c - a).dot(declared) > 0.0);
+    }
+}
+
+#[test]
+fn test_d20_target_rotation_keeps_each_face_uniquely_up() {
+    let geometry = d20_geometry();
+    for face in geometry.faces {
+        for yaw in [0.0, 0.37, 1.9, 5.2] {
+            let rotation = face.target_rotation(yaw);
+            assert!(((rotation * face.normal) - Vec3::Y).length() < D20_EPSILON);
+            let scores = geometry
+                .faces
+                .map(|candidate| (rotation * candidate.normal).dot(Vec3::Y));
+            assert_eq!(geometry.upward_face(rotation).value, face.value);
+            assert_eq!(
+                scores
+                    .iter()
+                    .filter(|score| **score > 1.0 - D20_EPSILON)
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
+#[test]
+fn test_d20_labels_are_parallel_outside_and_fit_their_faces() {
+    let geometry = d20_geometry();
+    let labels = d20_labels();
+    assert_eq!(labels.len(), 20);
+    for label in labels {
+        let face = geometry.face(label.value).expect("label face exists");
+        assert_eq!(label.value, label.face_value);
+        assert_eq!(label.normal, face.normal);
+        assert!(!label.vertices.is_empty());
+        assert_eq!(label.indices.len() % 3, 0);
+        for vertex in label.vertices {
+            let offset = vertex - face.center;
+            assert!(offset.dot(face.normal) > 0.0);
+            assert!((offset.dot(face.normal) - 0.006).abs() < D20_EPSILON);
+            assert_point_inside_face(
+                vertex - face.normal * 0.006,
+                face.vertices,
+                geometry.vertices,
+            );
+        }
+        assert_eq!(label.has_orientation_mark, matches!(label.value, 6 | 9));
+    }
+}
+
+#[test]
+fn test_d20_collider_mass_uses_only_canonical_vertices() {
+    let geometry = d20_geometry();
+    assert_eq!(geometry.collider_vertices(), geometry.vertices);
+    let collider = Collider::convex_hull(geometry.collider_vertices()).expect("valid d20 hull");
+    let properties = collider.mass_properties(1.0);
+    assert!(properties.mass.is_finite() && properties.mass > 0.0);
+    assert!(properties.center_of_mass.length() < D20_EPSILON);
+    let inertia = properties.principal_angular_inertia;
+    assert!((inertia.x - inertia.y).abs() < D20_EPSILON);
+    assert!((inertia.y - inertia.z).abs() < D20_EPSILON);
+    assert!(
+        d20_labels()
+            .iter()
+            .map(|label| label.vertices.len())
+            .sum::<usize>()
+            > 12
+    );
+}
 
 #[test]
 fn test_d6_topology_and_values_are_complete() {
@@ -221,5 +394,34 @@ fn assert_same_vertex_set(left: [Vec3; 8], right: [Vec3; 8]) {
                 .any(|candidate| (*candidate - vertex).length() < EPSILON),
             "missing vertex {vertex:?} in {right:?}"
         );
+    }
+}
+
+fn mesh_positions<'a>(mesh: &'a Mesh, die: &str) -> &'a [[f32; 3]] {
+    match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+        Some(VertexAttributeValues::Float32x3(positions)) => positions,
+        _ => panic!("{die} mesh must have f32 positions"),
+    }
+}
+
+fn mesh_normals<'a>(mesh: &'a Mesh, die: &str) -> &'a [[f32; 3]] {
+    match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(VertexAttributeValues::Float32x3(normals)) => normals,
+        _ => panic!("{die} mesh must have f32 normals"),
+    }
+}
+
+fn mesh_indices<'a>(mesh: &'a Mesh, die: &str) -> &'a [u32] {
+    match mesh.indices() {
+        Some(Indices::U32(indices)) => indices,
+        _ => panic!("{die} mesh must have u32 indices"),
+    }
+}
+
+fn assert_point_inside_face(point: Vec3, indices: [usize; 3], vertices: [Vec3; 12]) {
+    let [a, b, c] = indices.map(|index| vertices[index]);
+    let normal = (b - a).cross(c - a).normalize();
+    for (start, end) in [(a, b), (b, c), (c, a)] {
+        assert!((end - start).cross(point - start).dot(normal) >= -D20_EPSILON);
     }
 }
