@@ -2,13 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use avian3d::prelude::{Collider, ComputeMassProperties3d};
 use bevy::{
-    math::Quat,
+    math::{Mat3, Quat},
     mesh::{Indices, Mesh, VertexAttributeValues},
     prelude::Vec3,
 };
 use droll_gui::dice::{
-    D20_FACE_TO_FACE, d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries, d6_symmetry_mapping,
-    d20_geometry, d20_labels, d20_mesh,
+    D20_FACE_TO_FACE, D20SolidSymmetry, d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries,
+    d6_symmetry_mapping, d20_geometry, d20_labels, d20_mesh, d20_solid_symmetries,
+    d20_symmetry_mapping, d20_symmetry_mappings,
 };
 
 const EPSILON: f32 = 1.0e-5;
@@ -181,6 +182,135 @@ fn test_d20_collider_mass_uses_only_canonical_vertices() {
             .sum::<usize>()
             > 12
     );
+}
+
+#[test]
+fn test_d20_symmetry_group_has_60_unique_proper_rotations() {
+    let symmetries = d20_solid_symmetries();
+    assert_eq!(symmetries.len(), 60);
+    assert!(
+        symmetries
+            .iter()
+            .any(|symmetry| same_rotation(symmetry.rotation, Quat::IDENTITY))
+    );
+    for (index, symmetry) in symmetries.iter().enumerate() {
+        assert_eq!(usize::from(symmetry.id), index);
+        assert!((symmetry.rotation.length() - 1.0).abs() < D20_EPSILON);
+        assert!((Mat3::from_quat(symmetry.rotation).determinant() - 1.0).abs() < D20_EPSILON);
+        assert!(
+            symmetries[index + 1..]
+                .iter()
+                .all(|candidate| !same_rotation(symmetry.rotation, candidate.rotation))
+        );
+    }
+}
+
+#[test]
+fn test_d20_symmetry_group_is_closed_and_has_inverses() {
+    let symmetries = d20_solid_symmetries();
+    for left in &symmetries {
+        assert!(
+            symmetries
+                .iter()
+                .any(|candidate| { same_rotation(candidate.rotation, left.rotation.inverse()) })
+        );
+        for right in &symmetries {
+            assert!(symmetries.iter().any(|candidate| {
+                same_rotation(candidate.rotation, left.rotation * right.rotation)
+            }));
+        }
+    }
+}
+
+#[test]
+fn test_d20_symmetries_preserve_geometry_topology_and_mass() {
+    let geometry = d20_geometry();
+    let baseline = Collider::convex_hull(geometry.collider_vertices())
+        .expect("valid hull")
+        .mass_properties(1.0);
+    for symmetry in d20_solid_symmetries() {
+        assert_same_d20_vertex_set(
+            geometry.vertices,
+            geometry.vertices.map(|vertex| symmetry.rotation * vertex),
+        );
+        let transformed = Collider::convex_hull(
+            geometry
+                .vertices
+                .map(|vertex| symmetry.rotation * vertex)
+                .to_vec(),
+        )
+        .expect("symmetry preserves hull")
+        .mass_properties(1.0);
+        assert!((transformed.mass - baseline.mass).abs() < D20_EPSILON);
+        assert!((transformed.center_of_mass - baseline.center_of_mass).length() < D20_EPSILON);
+        assert!(
+            (transformed.principal_angular_inertia - baseline.principal_angular_inertia).length()
+                < D20_EPSILON
+        );
+        assert_mapped_d20_relationships(symmetry);
+    }
+}
+
+#[test]
+fn test_d20_every_ordered_face_pair_has_three_phased_mappings() {
+    let geometry = d20_geometry();
+    let mut orbit = BTreeSet::new();
+    for target in 1..=20 {
+        for base in 1..=20 {
+            let mappings = d20_symmetry_mappings(target, base);
+            assert_eq!(mappings.len(), 3, "target={target} base={base}");
+            for phase in 0..3 {
+                let selected = d20_symmetry_mapping(target, base, phase).expect("phase mapping");
+                assert!(mappings.iter().any(|candidate| candidate.id == selected.id));
+                let target_face = geometry.face(target).expect("target exists");
+                let base_face = geometry.face(base).expect("base exists");
+                assert_eq!(selected.map_face(target_face).value, base);
+                assert_face_triangle_maps(selected, target_face.vertices, base_face.vertices);
+                let start = geometry.vertices[base_face.vertices[usize::from(phase)]];
+                let end = geometry.vertices[base_face.vertices[(usize::from(phase) + 1) % 3]];
+                let expected_right = (end - start).normalize();
+                assert!(
+                    (selected.rotation * target_face.label_right - expected_right).length()
+                        < D20_EPSILON
+                );
+                assert!(
+                    (selected.rotation * target_face.label_up
+                        - base_face.normal.cross(expected_right).normalize())
+                    .length()
+                        < D20_EPSILON
+                );
+            }
+        }
+        orbit.extend(d20_solid_symmetries().into_iter().map(|symmetry| {
+            symmetry
+                .map_face(geometry.face(target).expect("target exists"))
+                .value
+        }));
+    }
+    assert_eq!(orbit, (1..=20).collect());
+}
+
+#[test]
+fn test_d20_target_symmetry_is_right_composed_after_world_nuisance() {
+    let geometry = d20_geometry();
+    let base_face = 9;
+    let base_rotation = Quat::from_euler(bevy::math::EulerRot::XYZ, 0.4, -0.2, 0.9);
+    let nuisance =
+        Quat::from_axis_angle(Vec3::new(1.0, 1.0, 0.0).normalize(), 0.5_f32.to_radians());
+    let variant = nuisance * base_rotation;
+    for phase in 0..3 {
+        for target in 1..=20 {
+            let symmetry = d20_symmetry_mapping(target, base_face, phase).expect("mapping exists");
+            let mapped = variant * symmetry.rotation;
+            assert_same_d20_vertex_set(
+                geometry.vertices.map(|vertex| variant * vertex),
+                geometry.vertices.map(|vertex| mapped * vertex),
+            );
+            let target_normal = geometry.face(target).expect("target exists").normal;
+            let base_normal = geometry.face(base_face).expect("base exists").normal;
+            assert!(((mapped * target_normal) - (variant * base_normal)).length() < D20_EPSILON);
+        }
+    }
 }
 
 #[test]
@@ -423,5 +553,64 @@ fn assert_point_inside_face(point: Vec3, indices: [usize; 3], vertices: [Vec3; 1
     let normal = (b - a).cross(c - a).normalize();
     for (start, end) in [(a, b), (b, c), (c, a)] {
         assert!((end - start).cross(point - start).dot(normal) >= -D20_EPSILON);
+    }
+}
+
+fn same_rotation(left: Quat, right: Quat) -> bool {
+    left.dot(right).abs() > 1.0 - D20_EPSILON
+}
+
+fn assert_same_d20_vertex_set(left: [Vec3; 12], right: [Vec3; 12]) {
+    for vertex in left {
+        assert!(
+            right
+                .iter()
+                .any(|candidate| candidate.distance(vertex) < D20_EPSILON),
+            "missing vertex {vertex:?}"
+        );
+    }
+}
+
+fn assert_mapped_d20_relationships(symmetry: D20SolidSymmetry) {
+    let geometry = d20_geometry();
+    let mapped_values = geometry
+        .faces
+        .map(|face| symmetry.map_face(face).value)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(mapped_values, (1..=20).collect());
+    for face in geometry.faces {
+        let mapped = symmetry.map_face(face);
+        let mapped_adjacency = face
+            .adjacent_values
+            .map(|value| {
+                symmetry
+                    .map_face(geometry.face(value).expect("adjacent face exists"))
+                    .value
+            })
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            mapped_adjacency,
+            mapped.adjacent_values.into_iter().collect()
+        );
+        assert_eq!(
+            symmetry
+                .map_face(geometry.face(face.opposite_value).expect("opposite exists"))
+                .value,
+            mapped.opposite_value
+        );
+    }
+}
+
+fn assert_face_triangle_maps(symmetry: D20SolidSymmetry, target: [usize; 3], base: [usize; 3]) {
+    let vertices = d20_geometry().vertices;
+    let mapped = target.map(|index| symmetry.rotation * vertices[index]);
+    for vertex in base.map(|index| vertices[index]) {
+        assert!(
+            mapped
+                .iter()
+                .any(|candidate| candidate.distance(vertex) < D20_EPSILON)
+        );
     }
 }
