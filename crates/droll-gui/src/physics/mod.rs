@@ -3,6 +3,7 @@
 mod controller;
 mod launch;
 mod metrics;
+mod recorded;
 mod state;
 mod symmetry_launch;
 
@@ -15,6 +16,12 @@ pub use launch::{
     d6_launch_search_candidates, d6_passing_launch_families,
 };
 pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
+pub use recorded::{
+    AttemptDiagnostic, AttemptOutcome, CalibrationMetrics, ContactDiagnostics, DieKind,
+    InvalidityReason, NaturalTerminalDiagnostics, PhysicalBatchRequest, PhysicalTray,
+    PhysicalValidityPolicy, PreparationFailure, RecordedBatch, RecordedDie, SupportClassification,
+    TrajectorySample, prepare_recorded_batch,
+};
 pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
 pub use symmetry_launch::{
     ContactSample, SymmetryDie, SymmetryDieState, SymmetryLifecycle, SymmetryMetrics,
