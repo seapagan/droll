@@ -36,9 +36,18 @@ and the independent all-face corpus remains 216/216 with zero recovery or
 intervention. The owner reviewed the resulting Linux candidate at
 `1b20d531dcaf04198e068e69ba84382bff87a0f8` and recorded **PASS** on
 2026-08-21. That SHA is now the frozen H1 d6 behavior candidate for native
-cross-platform validation. macOS and Windows systemic and real-window evidence
-remain pending, so this is not Stage 1 approval. d20, multi-die, and later
-phases remain prohibited.
+cross-platform validation. The same frozen behavior subsequently passed native
+runtime/visual review on real Windows x86_64 hardware and visually matched the
+approved Linux behavior. Native hosted CI/systemic validation remains green on
+Linux x86_64, Windows x86_64, macOS Intel, and macOS Apple Silicon.
+
+The owner has explicitly accepted those Linux and Windows manual passes plus
+the all-platform native systemic evidence as sufficient for the Stage 1 d6
+gate. macOS manual runtime/visual evidence is non-blocking only for continued
+Stage 1 work and is deferred to pre-release real-hardware validation. The next
+experimental target may therefore be d20 under the already-approved H1
+architecture; this evidence update does not implement or otherwise authorize
+d20 code.
 
 ## Candidate provenance and fixed configuration
 
@@ -49,6 +58,9 @@ phases remain prohibited.
   `5faf74f5202eb0ed32e47c3a37080afe6683c247`.
 - Frozen H1 d6 behavior candidate:
   `1b20d531dcaf04198e068e69ba84382bff87a0f8`.
+- This owner-decision update is documentation-only. It does not change the
+  frozen candidate's executable behavior, configuration, dependency graph, or
+  validation corpus.
 - Rust 1.97.1; MSRV 1.95.0; Bevy 0.19.1; Avian3D 0.7.0 with `3d`, `f32`, and
   `parry-f32` only. Avian parallel remains disabled.
 
@@ -352,13 +364,13 @@ was:
 cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode symmetry-launch
 ```
 
-This owner verdict completes the Linux visual checkpoint only. It does not
-approve Stage 1, waive required native macOS/Windows evidence, or authorize
-d20. The behavior/configuration at the frozen SHA must remain identical across
-hosts. Any change to launch-family parameters, symmetry mappings, the nuisance
-corpus, physics, geometry/colliders, rest/completion behavior, dependencies,
-features, or other executable d6 behavior invalidates the freeze and requires a
-new frozen SHA plus repeated Linux automated and owner visual validation.
+This owner verdict completes the Linux visual checkpoint. The later Windows
+visual pass and owner-approved macOS exception are recorded below. The
+behavior/configuration at the frozen SHA must remain identical across hosts.
+Any change to launch-family parameters, symmetry mappings, the nuisance corpus,
+physics, geometry/colliders, rest/completion behavior, dependencies, features,
+or other executable d6 behavior invalidates the freeze and requires a new
+frozen SHA plus repeated applicable automated and owner visual validation.
 
 ### Frozen-candidate native validation procedure
 
@@ -407,34 +419,62 @@ target order 1-6. Record:
   pathological bouncing/settling, and agreement between requested and final
   physical face.
 
-A native configuration passes only when the frozen SHA and toolchain/host are
-confirmed, all focused and native gates pass, every corpus face is correct,
-pre-contact paired equivalence passes, and timeout, wrong-face, recovery/retry,
-and post-spawn target-aware intervention/work remain zero. Post-contact numeric
-divergence is retained diagnostically and fails only when it exposes a real H1
-defect. Its separate human real-window verdict must also pass. STOP on a SHA or
+A native systemic configuration passes only when the frozen SHA and
+toolchain/host are confirmed, all focused and native gates pass, every corpus
+face is correct, pre-contact paired equivalence passes, and timeout, wrong-face,
+recovery/retry, and post-spawn target-aware intervention/work remain zero.
+Post-contact numeric divergence is retained diagnostically and fails only when
+it exposes a real H1 defect. Manual runtime/visual evidence is recorded
+separately and never inferred from hosted headless success. STOP on a SHA or
 behavior mismatch, material pre-contact divergence, wrong face, timeout,
 recovery/retry, intervention/work, need for platform-specific tuning, staged
 orientation that is visually obvious, target-directed manipulation, or
-pathological native motion. A
-host without native real-window access remains pending or unavailable; hosted
-headless success is not a human visual verdict.
+pathological native motion.
+
+### Owner-approved Stage 1 native-visual gate decision
+
+The evidence layers and their obligations are:
+
+1. **Automated/native systemic evidence:** mandatory and green for Linux
+   x86_64, Windows x86_64, macOS Intel, and macOS Apple Silicon. These jobs are
+   native compile/test/systemic evidence, not visual verdicts.
+2. **Manual visual/runtime evidence:** passed on Linux x86_64 and real Windows
+   x86_64 hardware. The Windows run matched the approved Linux behavior.
+   macOS manual evidence is unavailable and is non-blocking only for this
+   Stage 1 gate by explicit owner decision.
+3. **Deferred pre-release macOS real-hardware validation:** still required on
+   stable supported hardware where practical, including rented or borrowed
+   hardware if appropriate. This preserves macOS as a supported first-class
+   target and does not weaken mandatory native CI/systemic coverage.
+
+The available physical Intel Mac is a `Macmini7,1` running macOS Sequoia
+through OpenCore Legacy Patcher. Its normal Bevy/WGPU Metal path fails before a
+valid H1 review because wgpu-hal 29.0.4 selects MSL 3.2 based on macOS 15 while
+the legacy Metal stack/compiler accepts only through MSL 3.1. Disabling
+`WGPU_VALIDATION_INDIRECT_CALL` allowed Bevy to create the window and begin the
+spike, but ordinary render compute pipelines then failed with the same MSL 3.2
+compiler error, leaving the window blank.
+
+A controlled local wgpu-hal experiment was prepared outside this repository to
+cap the reported MSL version at 3.1. During release compilation of that patched
+dependency the physical Mac hard-froze before the example launched. The
+experiment is **inconclusive** and is recorded as neither a runtime PASS nor
+FAIL. Apple Silicon manual visual evidence is unavailable because the owner
+does not currently have access to Apple Silicon hardware.
 
 | Required native configuration | Systemic evidence | Real-window evidence | Overall |
 |---|---|---|---|
-| Linux x86_64 | Passed: corrected gates, 216/216, full local quality suite | Passed: owner, 2026-08-21 | **Passed** |
-| macOS Apple Silicon | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
-| macOS Intel | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
-| Windows x86_64 MSVC | Pending: branch is local-only | Pending: native hardware/access not yet evidenced | **Pending** |
+| Linux x86_64 | Passed: corrected gates, 216/216, local suite, hosted native CI | Passed: owner, 2026-08-21 | **Stage 1 d6 gate passed** |
+| macOS Apple Silicon | Passed: hosted native CI/systemic matrix green | Unavailable: owner has no Apple Silicon hardware; deferred to pre-release | **Stage 1 manual exception** |
+| macOS Intel | Passed: hosted native CI/systemic matrix green | Unavailable on `Macmini7,1`: legacy Metal/MSL incompatibility; patched experiment inconclusive; deferred to pre-release | **Stage 1 manual exception** |
+| Windows x86_64 MSVC | Passed: hosted native CI/systemic matrix green | Passed: real hardware; matched approved Linux behavior | **Stage 1 d6 gate passed** |
 
 The local Linux evidence at the frozen candidate also includes passing
 `cargo make verify-xwin`, `cargo make verify`, `cargo make msrv`, and
 `git diff --check`. Those results preserve the existing dependency, native CI,
-MSRV, policy, and cargo-xwin 0.23.1 boundaries, but do not fill any native
-macOS/Windows cell. The branch has no upstream and remains unpublished. The
-native hosted matrix cannot test this candidate until separately authorized
-publication makes it reachable by an eligible pull-request or manual workflow
-dispatch.
+MSRV, policy, and cargo-xwin 0.23.1 boundaries. The later native hosted matrix
+supplies the separate four-platform systemic evidence. Neither source is used
+as a substitute for a manual visual verdict.
 
 ## Historical Candidate D review commands
 
@@ -453,14 +493,19 @@ cargo run -p droll-gui --release --example directed_physics_spike -- --scenario 
 ## Platform and checkpoint verdict
 
 The native Linux release runs used Vulkan on NVIDIA GeForce RTX 4070 Ti SUPER,
-driver 595.84. macOS arm64, macOS Intel, Windows native/manual evidence, d20,
-multi-die, keep/drop, and final Stage 1 GO/STOP remain later gates. Linux xwin
-0.23.1 remains supplementary compile/check/Clippy evidence only.
+driver 595.84. Windows native runtime/visual H1 d6 validation passed on real
+hardware and matched the approved Linux behavior. macOS manual evidence is
+deferred under the narrow owner-approved Stage 1 exception; macOS native
+systemic coverage remains mandatory and green. d20, multi-die, keep/drop, and
+the final full-Stage 1 GO/STOP remain later gates. Linux xwin 0.23.1 remains
+supplementary compile/check/Clippy evidence only.
 
 Candidate D checkpoint verdict: **FAIL / OWNER-REJECTED**. H1 replacement
 initial checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
 REVIEW**. The corrected pre-contact gate, 216/216 corpus, and Linux owner visual
 checkpoint now pass at the frozen behavior candidate. Candidate B/D and the
-original H1 STOP remain historical evidence. Required macOS and Windows
-systemic and human real-window evidence remain pending, so Stage 1 is not GO
-and d20 remains prohibited.
+original H1 STOP remain historical evidence. The Linux and Windows manual
+passes plus green four-platform native systemic evidence satisfy the owner-
+approved d6 gate. Stage 1 is contractually clear to proceed to a separately
+approved d20 H1 experiment; this is not a final full-Stage 1 GO, and the
+deferred macOS pre-release real-hardware validation obligation remains.
