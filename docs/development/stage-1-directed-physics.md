@@ -2,7 +2,14 @@
 
 ## Status and owner verdicts
 
-Phase 3 remains stopped at the d6 visual checkpoint. The owner reviewed
+Candidate B and Candidate D were owner-rejected. The subsequent d6 H1 candidate
+passed its corrected automated gate and Linux/Windows visual gate, after which
+the owner voluntarily retired H1 as the active Stage 1 candidate without
+declaring it physically disproven. Recorded-physics replay is now the owner-
+ratified Stage 1 replacement candidate, but no recorded-physics implementation
+evidence exists yet and Stage 1 has no GO.
+
+The owner reviewed
 `review-candidate-b` at `b8fa6173147099a8bc4f531aac62376f4c65be68` and
 recorded **FAIL / rejected** on 2026-08-21. Its 18/18 systemic result remains
 historical evidence, but the real-window motion showed an effectively settled
@@ -41,13 +48,13 @@ runtime/visual review on real Windows x86_64 hardware and visually matched the
 approved Linux behavior. Native hosted CI/systemic validation remains green on
 Linux x86_64, Windows x86_64, macOS Intel, and macOS Apple Silicon.
 
-The owner has explicitly accepted those Linux and Windows manual passes plus
-the all-platform native systemic evidence as sufficient for the Stage 1 d6
-gate. macOS manual runtime/visual evidence is non-blocking only for continued
-Stage 1 work and is deferred to pre-release real-hardware validation. The next
-experimental target may therefore be d20 under the already-approved H1
-architecture; this evidence update does not implement or otherwise authorize
-d20 code.
+The owner explicitly accepted those Linux and Windows manual passes plus the
+all-platform native systemic evidence as sufficient for the H1 d6 gate. macOS
+manual runtime/visual evidence is non-blocking only for Stage 1 and is deferred
+to pre-release real-hardware validation. The owner later voluntarily retired H1
+as the active candidate and selected recorded-physics replay. This product-
+architecture choice does not invalidate the successful d6 evidence or declare
+H1 physically disproven, and it is not Stage 1 GO.
 
 ## Candidate provenance and fixed configuration
 
@@ -476,6 +483,49 @@ MSRV, policy, and cargo-xwin 0.23.1 boundaries. The later native hosted matrix
 supplies the separate four-platform systemic evidence. Neither source is used
 as a substitute for a manual visual verdict.
 
+## Owner-ratified recorded-physics replacement decision
+
+On 2026-08-22 the owner retired continued H1 work voluntarily and ratified the
+bounded target-blind pre-simulate / record / proper-solid-symmetry / replay
+architecture as the new Stage 1 candidate. The historical evidence boundary is:
+
+- guided settling and visible target-aware recovery remain rejected;
+- d6 H1 remains a successful experiment with its 216/216 corpus, corrected
+  pre-contact proof, Linux/Windows visual passes, native systemic evidence, and
+  narrow macOS manual exception;
+- the committed d20 geometry, numbering, labels, collider source, upward-face
+  observation, and 60-element proper symmetry group remain valid reusable
+  foundations;
+- the stopped d20 H1 search remains authoritative evidence only for its exact
+  implemented grid. Its audit found that grid did not conform to the
+  preregistered size/inertia/tray seed derivation, so the STOP does not establish
+  intrinsic H1 infeasibility or reject the three-family premise; and
+- a fresh conforming d20 H1 search is voluntarily retired by owner decision,
+  not by a physical-failure verdict.
+
+No recorded-physics implementation or replacement-spike evidence exists yet.
+There is no Stage 1 GO. Phase 0 remains unauthorized until the ratified contract
+and evidence diff is reviewed and the owner separately grants implementation
+authority. The existing narrow Stage 1 macOS manual-visual exception transfers
+to the replacement candidate: macOS Intel and Apple Silicon native systemic
+evidence remain mandatory, while real-hardware macOS visual/runtime review is
+deferred to pre-release on stable supported hardware where practical and must
+be recorded as an exception, never a PASS. Linux and real Windows owner visual
+checkpoints remain mandatory for the replacement spike.
+
+### Durable d20 H1 search STOP reproducer
+
+The exact unstaged Phase 4 implementation is preserved at
+`docs/development/stage-1-d20-h1-search-stop-reproducer.patch` against base
+`595804e7ce3c437fce540bd36a615768d2e72308`. The patch SHA-256 is
+`61b8c9369ef3e7c3be91cc96832ca703a9f221ad0da8e250ddf3fd1516f95d2d`;
+the associated raw `target/stage-1-evidence/d20-launch-search-stop.log`
+SHA-256 is
+`0519d0c7949676c265244b97599da768365d6527ef0b799945df6b47cf84eb7e`.
+The patch preserves only the stopped nonconforming-grid implementation for
+historical reproduction. The current architecture does not authorize applying
+or running it. H1 was voluntarily retired and was not physically disproven.
+
 ## Historical Candidate D review commands
 
 ```console
@@ -506,6 +556,9 @@ REVIEW**. The corrected pre-contact gate, 216/216 corpus, and Linux owner visual
 checkpoint now pass at the frozen behavior candidate. Candidate B/D and the
 original H1 STOP remain historical evidence. The Linux and Windows manual
 passes plus green four-platform native systemic evidence satisfy the owner-
-approved d6 gate. Stage 1 is contractually clear to proceed to a separately
-approved d20 H1 experiment; this is not a final full-Stage 1 GO, and the
-deferred macOS pre-release real-hardware validation obligation remains.
+approved d6 gate. At that historical checkpoint, the contract permitted a
+separately approved d20 H1 experiment. H1 is now voluntarily
+retired as the active candidate rather than disproven. The recorded-physics
+replay architecture is only the new Stage 1 candidate; it has no implementation
+evidence and does not establish Stage 1 GO. The deferred macOS pre-release real-
+hardware validation obligation remains.

@@ -1,0 +1,582 @@
+diff --git a/crates/droll-gui/src/physics/launch.rs b/crates/droll-gui/src/physics/launch.rs
+index 21c835e..c0fcdfa 100644
+--- a/crates/droll-gui/src/physics/launch.rs
++++ b/crates/droll-gui/src/physics/launch.rs
+@@ -1,16 +1,22 @@
++use avian3d::prelude::{Collider, ComputeMassProperties3d};
+ use bevy::prelude::{EulerRot, Quat, Vec3};
+ 
++use crate::dice::{D20_FACE_TO_FACE, d20_geometry};
++
+ const ORIENTATION_NUISANCE_AXIS: Vec3 = Vec3::new(1.0, 1.0, 0.0);
+ 
+ /// A complete target-independent physical launch state.
+ #[derive(Clone, Copy, Debug, PartialEq)]
+-pub struct D6LaunchState {
++pub struct LaunchState {
+     pub position: Vec3,
+     pub orientation: Quat,
+     pub linear_velocity: Vec3,
+     pub angular_velocity: Vec3,
+ }
+ 
++pub type D6LaunchState = LaunchState;
++pub type D20LaunchState = LaunchState;
++
+ /// One of the four qualitatively distinct energetic search regions.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum LaunchKind {
+@@ -215,3 +221,233 @@ fn prototype(kind: LaunchKind) -> D6LaunchState {
+         angular_velocity,
+     }
+ }
++
++/// One of the three preregistered d20 search regions.
++#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
++pub enum D20LaunchKind {
++    HighEndOverEnd,
++    LateralAxial,
++    DiagonalCompound,
++}
++
++impl D20LaunchKind {
++    #[must_use]
++    pub const fn as_str(self) -> &'static str {
++        match self {
++            Self::HighEndOverEnd => "high-end-over-end",
++            Self::LateralAxial => "lateral-axial",
++            Self::DiagonalCompound => "diagonal-compound",
++        }
++    }
++}
++
++/// One of exactly 96 target-independent d20 launch candidates.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct D20LaunchCandidate {
++    pub search_id: u8,
++    pub kind: D20LaunchKind,
++    pub state: D20LaunchState,
++}
++
++impl D20LaunchCandidate {
++    #[must_use]
++    pub fn id(self) -> String {
++        format!("d20-search-{:02}-{}", self.search_id, self.kind.as_str())
++    }
++}
++
++/// One qualified d20 family, including its preregistered cyclic phase.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct D20LaunchFamily {
++    pub family_id: &'static str,
++    pub candidate: D20LaunchCandidate,
++    pub natural_face: u8,
++    pub phase: u8,
++}
++
++/// The nominal state and 12 preregistered d20 perturbations.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum D20LaunchNuisance {
++    Nominal,
++    PositionXPlus,
++    PositionXMinus,
++    PositionZPlus,
++    PositionZMinus,
++    OrientationXyPlus,
++    OrientationXyMinus,
++    OrientationYzPlus,
++    OrientationYzMinus,
++    LinearPlus,
++    LinearMinus,
++    AngularPlus,
++    AngularMinus,
++}
++
++impl D20LaunchNuisance {
++    pub const ALL: [Self; 13] = [
++        Self::Nominal,
++        Self::PositionXPlus,
++        Self::PositionXMinus,
++        Self::PositionZPlus,
++        Self::PositionZMinus,
++        Self::OrientationXyPlus,
++        Self::OrientationXyMinus,
++        Self::OrientationYzPlus,
++        Self::OrientationYzMinus,
++        Self::LinearPlus,
++        Self::LinearMinus,
++        Self::AngularPlus,
++        Self::AngularMinus,
++    ];
++
++    #[must_use]
++    pub const fn as_str(self) -> &'static str {
++        match self {
++            Self::Nominal => "nominal",
++            Self::PositionXPlus => "position-x-plus-0.01-face-size",
++            Self::PositionXMinus => "position-x-minus-0.01-face-size",
++            Self::PositionZPlus => "position-z-plus-0.01-face-size",
++            Self::PositionZMinus => "position-z-minus-0.01-face-size",
++            Self::OrientationXyPlus => "orientation-world-xy-plus-0.5deg",
++            Self::OrientationXyMinus => "orientation-world-xy-minus-0.5deg",
++            Self::OrientationYzPlus => "orientation-world-yz-plus-0.5deg",
++            Self::OrientationYzMinus => "orientation-world-yz-minus-0.5deg",
++            Self::LinearPlus => "linear-times-1.01",
++            Self::LinearMinus => "linear-times-0.99",
++            Self::AngularPlus => "angular-times-1.01",
++            Self::AngularMinus => "angular-times-0.99",
++        }
++    }
++
++    #[must_use]
++    pub fn apply(self, mut state: D20LaunchState) -> D20LaunchState {
++        let position_delta = D20_FACE_TO_FACE * 0.01;
++        match self {
++            Self::Nominal => {}
++            Self::PositionXPlus => state.position.x += position_delta,
++            Self::PositionXMinus => state.position.x -= position_delta,
++            Self::PositionZPlus => state.position.z += position_delta,
++            Self::PositionZMinus => state.position.z -= position_delta,
++            Self::OrientationXyPlus => {
++                apply_d20_orientation(&mut state, Vec3::new(1.0, 1.0, 0.0), 0.5)
++            }
++            Self::OrientationXyMinus => {
++                apply_d20_orientation(&mut state, Vec3::new(1.0, 1.0, 0.0), -0.5)
++            }
++            Self::OrientationYzPlus => {
++                apply_d20_orientation(&mut state, Vec3::new(0.0, 1.0, 1.0), 0.5)
++            }
++            Self::OrientationYzMinus => {
++                apply_d20_orientation(&mut state, Vec3::new(0.0, 1.0, 1.0), -0.5)
++            }
++            Self::LinearPlus => state.linear_velocity *= 1.01,
++            Self::LinearMinus => state.linear_velocity *= 0.99,
++            Self::AngularPlus => state.angular_velocity *= 1.01,
++            Self::AngularMinus => state.angular_velocity *= 0.99,
++        }
++        state
++    }
++}
++
++/// Returns the fixed 32-candidate-per-region d20 grid.
++#[must_use]
++pub fn d20_launch_search_candidates() -> Vec<D20LaunchCandidate> {
++    let mut candidates = Vec::with_capacity(96);
++    for kind in [
++        D20LaunchKind::HighEndOverEnd,
++        D20LaunchKind::LateralAxial,
++        D20LaunchKind::DiagonalCompound,
++    ] {
++        let (base, axes) = d20_prototype(kind);
++        for height_delta in [-0.12, 0.12] {
++            for yaw_delta in [0.0, 0.31] {
++                for linear_scale in [0.94, 1.06] {
++                    for angular_scale in [0.94, 1.06] {
++                        for axis in axes {
++                            let mut state = base;
++                            state.position.y += height_delta * D20_FACE_TO_FACE;
++                            state.orientation =
++                                Quat::from_rotation_y(yaw_delta) * state.orientation;
++                            state.linear_velocity *= linear_scale;
++                            state.angular_velocity =
++                                axis * (base.angular_velocity.length() * angular_scale);
++                            candidates.push(D20LaunchCandidate {
++                                search_id: u8::try_from(candidates.len())
++                                    .expect("search cap is 96"),
++                                kind,
++                                state,
++                            });
++                        }
++                    }
++                }
++            }
++        }
++    }
++    candidates
++}
++
++fn apply_d20_orientation(state: &mut D20LaunchState, axis: Vec3, degrees: f32) {
++    state.orientation =
++        Quat::from_axis_angle(axis.normalize(), degrees.to_radians()) * state.orientation;
++}
++
++fn d20_prototype(kind: D20LaunchKind) -> (D20LaunchState, [Vec3; 2]) {
++    let (position, euler, linear, rotations, time, axes) = match kind {
++        D20LaunchKind::HighEndOverEnd => (
++            Vec3::new(-1.55, 3.55, -0.85),
++            Vec3::new(0.7, 0.25, 1.0),
++            Vec3::new(2.65, 0.35, 1.15),
++            1.45,
++            0.72,
++            [
++                Vec3::new(0.94, 0.18, 0.29).normalize(),
++                Vec3::new(0.86, 0.32, 0.40).normalize(),
++            ],
++        ),
++        D20LaunchKind::LateralAxial => (
++            Vec3::new(1.65, 2.75, -0.45),
++            Vec3::new(1.2, 0.65, 0.25),
++            Vec3::new(-2.25, 0.20, 1.65),
++            1.25,
++            0.64,
++            [
++                Vec3::new(0.18, 0.96, 0.24).normalize(),
++                Vec3::new(0.34, 0.89, 0.30).normalize(),
++            ],
++        ),
++        D20LaunchKind::DiagonalCompound => (
++            Vec3::new(1.25, 3.25, 1.05),
++            Vec3::new(0.35, 1.0, 0.75),
++            Vec3::new(-2.35, 0.50, -1.50),
++            1.55,
++            0.78,
++            [
++                Vec3::new(0.72, -0.51, 0.47).normalize(),
++                Vec3::new(0.58, -0.63, 0.52).normalize(),
++            ],
++        ),
++    };
++    let angular_speed = d20_angular_speed(rotations, time);
++    (
++        LaunchState {
++            position: position * D20_FACE_TO_FACE,
++            orientation: Quat::from_euler(EulerRot::XYZ, euler.x, euler.y, euler.z),
++            linear_velocity: linear * D20_FACE_TO_FACE,
++            angular_velocity: axes[0] * angular_speed,
++        },
++        axes,
++    )
++}
++
++fn d20_angular_speed(rotations: f32, seconds: f32) -> f32 {
++    let collider =
++        Collider::convex_hull(d20_geometry().collider_vertices()).expect("valid d20 hull");
++    let inertia = collider
++        .mass_properties(1.0)
++        .principal_angular_inertia
++        .element_sum()
++        / 3.0;
++    let desired_speed = rotations * std::f32::consts::TAU / seconds;
++    let rotational_energy = 0.5 * inertia * desired_speed * desired_speed;
++    (2.0 * rotational_energy / inertia).sqrt()
++}
+diff --git a/crates/droll-gui/src/physics/mod.rs b/crates/droll-gui/src/physics/mod.rs
+index a24af9d..1a33877 100644
+--- a/crates/droll-gui/src/physics/mod.rs
++++ b/crates/droll-gui/src/physics/mod.rs
+@@ -11,8 +11,9 @@ use bevy::{app::FixedPostUpdate, prelude::*};
+ 
+ pub use controller::{DirectedDie, DirectedPhysicsConfig, TraySurface, directed_d6_components};
+ pub use launch::{
+-    D6LaunchCandidate, D6LaunchFamily, D6LaunchState, LaunchKind, LaunchNuisance,
+-    d6_launch_search_candidates, d6_passing_launch_families,
++    D6LaunchCandidate, D6LaunchFamily, D6LaunchState, D20LaunchCandidate, D20LaunchFamily,
++    D20LaunchKind, D20LaunchNuisance, D20LaunchState, LaunchKind, LaunchNuisance, LaunchState,
++    d6_launch_search_candidates, d6_passing_launch_families, d20_launch_search_candidates,
+ };
+ pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
+ pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
+diff --git a/crates/droll-gui/tests/symmetry_launch_search.rs b/crates/droll-gui/tests/symmetry_launch_search.rs
+index c2975f0..9f04da8 100644
+--- a/crates/droll-gui/tests/symmetry_launch_search.rs
++++ b/crates/droll-gui/tests/symmetry_launch_search.rs
+@@ -6,16 +6,19 @@ use avian3d::prelude::{
+ };
+ use bevy::{prelude::*, time::TimeUpdateStrategy};
+ use droll_gui::{
+-    dice::d6_geometry,
++    dice::{d6_geometry, d20_geometry},
+     physics::{
+-        D6LaunchCandidate, D6LaunchState, LaunchKind, LaunchNuisance, d6_launch_search_candidates,
+-        d6_passing_launch_families,
++        D6LaunchCandidate, D6LaunchState, D20LaunchCandidate, D20LaunchKind, D20LaunchNuisance,
++        D20LaunchState, LaunchKind, LaunchNuisance, d6_launch_search_candidates,
++        d6_passing_launch_families, d20_launch_search_candidates,
+     },
+ };
+ 
+ const STEP_SECONDS: f64 = 1.0 / 60.0;
+ const WATCHDOG_STEPS: usize = 1_080;
+ const STABLE_STEPS: usize = 36;
++const D20_STABLE_STEPS: usize = 45;
++const D20_ANGLE_EPSILON: f32 = 2.0e-5;
+ 
+ #[derive(Clone, Copy, Debug)]
+ struct NaturalRun {
+@@ -86,6 +89,225 @@ fn test_bounded_search_finds_four_robust_energetic_families() {
+     }
+ }
+ 
++#[test]
++fn test_d20_bounded_search_finds_three_robust_energetic_families() {
++    let candidates = d20_launch_search_candidates();
++    assert_eq!(candidates.len(), 96);
++    assert_eq!(
++        candidates
++            .iter()
++            .filter(|candidate| candidate.kind == D20LaunchKind::HighEndOverEnd)
++            .count(),
++        32
++    );
++    assert_eq!(
++        candidates
++            .iter()
++            .filter(|candidate| candidate.kind == D20LaunchKind::LateralAxial)
++            .count(),
++        32
++    );
++    assert_eq!(
++        candidates
++            .iter()
++            .filter(|candidate| candidate.kind == D20LaunchKind::DiagonalCompound)
++            .count(),
++        32
++    );
++    let mut accepted = BTreeMap::new();
++    let mut rejected = Vec::new();
++    for candidate in candidates {
++        if accepted.contains_key(&candidate.kind) {
++            continue;
++        }
++        match screen_d20(candidate) {
++            Ok(runs) => {
++                println!("d20-accepted,{},base-face-{}", candidate.id(), runs[0].face);
++                print_d20_runs(candidate, &runs);
++                accepted.insert(candidate.kind, (candidate, runs));
++            }
++            Err(reason) => {
++                println!("d20-rejected,{},{}", candidate.id(), reason);
++                rejected.push((candidate.id(), reason));
++            }
++        }
++    }
++    println!(
++        "d20-search-summary,cap-96,considered-{},accepted-{},rejected-{}",
++        accepted.len() + rejected.len(),
++        accepted.len(),
++        rejected.len()
++    );
++    assert_eq!(
++        accepted.len(),
++        3,
++        "accepted={accepted:?}, rejected={rejected:?}"
++    );
++}
++
++fn screen_d20(candidate: D20LaunchCandidate) -> Result<Vec<NaturalRun>, String> {
++    let mut runs: Vec<NaturalRun> = Vec::with_capacity(D20LaunchNuisance::ALL.len());
++    for nuisance in D20LaunchNuisance::ALL {
++        let run = run_natural_d20(nuisance.apply(candidate.state))?;
++        if let Some(nominal) = runs.first()
++            && run.face != nominal.face
++        {
++            return Err(format!(
++                "{} changed face {}->{}",
++                nuisance.as_str(),
++                nominal.face,
++                run.face
++            ));
++        }
++        runs.push(run);
++    }
++    Ok(runs)
++}
++
++fn print_d20_runs(candidate: D20LaunchCandidate, runs: &[NaturalRun]) {
++    for (nuisance, run) in D20LaunchNuisance::ALL.into_iter().zip(runs) {
++        println!(
++            "d20-screen,{},{},{},{:.3},{:.3},{},{:.4},{:.4}",
++            candidate.id(),
++            nuisance.as_str(),
++            run.face,
++            run.first_contact_seconds,
++            run.completed_seconds,
++            run.contact_steps,
++            run.max_linear_speed,
++            run.max_angular_speed
++        );
++    }
++}
++
++fn run_natural_d20(state: D20LaunchState) -> Result<NaturalRun, String> {
++    let (mut app, die, floor) = build_d20_app(state);
++    let mut observation = D20NaturalObservation::default();
++    for step in 1..=WATCHDOG_STEPS {
++        app.update();
++        if let Some(run) = observe_d20_natural_step(&app, die, floor, step, &mut observation)? {
++            return Ok(run);
++        }
++    }
++    Err("watchdog timeout".to_owned())
++}
++
++#[derive(Default)]
++struct D20NaturalObservation {
++    stable_steps: usize,
++    stable_face: Option<u8>,
++    contact_steps: usize,
++    first_contact: Option<f32>,
++    max_linear: f32,
++    max_angular: f32,
++}
++
++fn observe_d20_natural_step(
++    app: &App,
++    die: Entity,
++    floor: Entity,
++    step: usize,
++    observation: &mut D20NaturalObservation,
++) -> Result<Option<NaturalRun>, String> {
++    let world = app.world();
++    let linear = world.get::<LinearVelocity>(die).expect("linear velocity");
++    let angular = world.get::<AngularVelocity>(die).expect("angular velocity");
++    let collisions = world
++        .get::<CollidingEntities>(die)
++        .expect("collision state");
++    let rotation = world.get::<Rotation>(die).expect("rotation").0;
++    let contact = collisions.contains(&floor);
++    observation.max_linear = observation.max_linear.max(linear.length());
++    observation.max_angular = observation.max_angular.max(angular.length());
++    if contact {
++        observation.contact_steps += 1;
++        observation
++            .first_contact
++            .get_or_insert(step as f32 * STEP_SECONDS as f32);
++    }
++    let face = d20_geometry().upward_face(rotation);
++    let stable = contact
++        && linear.length() <= 0.10
++        && angular.length() <= 0.16
++        && d20_face_is_unambiguous(rotation, face.value)
++        && observation
++            .stable_face
++            .is_none_or(|value| value == face.value);
++    if stable {
++        observation.stable_face = Some(face.value);
++        observation.stable_steps += 1;
++    } else {
++        observation.stable_face = None;
++        observation.stable_steps = 0;
++    }
++    if observation.stable_steps < D20_STABLE_STEPS {
++        return Ok(None);
++    }
++    if observation.max_linear < 2.0 || observation.max_angular < 5.0 {
++        return Err("insufficient energetic throw".to_owned());
++    }
++    Ok(Some(NaturalRun {
++        face: face.value,
++        completed_seconds: step as f32 * STEP_SECONDS as f32,
++        first_contact_seconds: observation
++            .first_contact
++            .expect("stable rest followed contact"),
++        contact_steps: observation.contact_steps,
++        max_linear_speed: observation.max_linear,
++        max_angular_speed: observation.max_angular,
++    }))
++}
++
++fn d20_face_is_unambiguous(rotation: Quat, selected_value: u8) -> bool {
++    let geometry = d20_geometry();
++    let selected = geometry.face(selected_value).expect("selected face exists");
++    let mut scores = geometry
++        .faces
++        .map(|face| (rotation * face.normal).dot(Vec3::Y));
++    scores.sort_by(f32::total_cmp);
++    let margin = scores[19] - scores[18];
++    let minimum_adjacent_angle = geometry
++        .faces
++        .iter()
++        .flat_map(|face| {
++            face.adjacent_values.map(|value| {
++                face.normal
++                    .angle_between(geometry.face(value).expect("adjacent face").normal)
++            })
++        })
++        .min_by(f32::total_cmp)
++        .expect("d20 has adjacent faces");
++    let selected_angle = (rotation * selected.normal).angle_between(Vec3::Y);
++    margin > D20_ANGLE_EPSILON && selected_angle + D20_ANGLE_EPSILON < minimum_adjacent_angle / 2.0
++}
++
++fn build_d20_app(state: D20LaunchState) -> (App, Entity, Entity) {
++    let mut app = App::new();
++    app.add_plugins((MinimalPlugins, PhysicsPlugins::default()));
++    app.finish();
++    app.cleanup();
++    app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
++        STEP_SECONDS,
++    )));
++    let floor = spawn_tray(&mut app);
++    let die = app
++        .world_mut()
++        .spawn((
++            RigidBody::Dynamic,
++            Collider::convex_hull(d20_geometry().collider_vertices()).expect("valid d20 hull"),
++            CollidingEntities::default(),
++            Friction::new(0.65),
++            Restitution::new(0.32),
++            LinearDamping(0.18),
++            AngularDamping(0.28),
++            LinearVelocity(state.linear_velocity),
++            AngularVelocity(state.angular_velocity),
++            Transform::from_translation(state.position).with_rotation(state.orientation),
++        ))
++        .id();
++    (app, die, floor)
++}
++
+ fn screen(candidate: D6LaunchCandidate) -> Result<Vec<NaturalRun>, String> {
+     let mut runs: Vec<NaturalRun> = Vec::with_capacity(LaunchNuisance::ALL.len());
+     for nuisance in LaunchNuisance::ALL {
+@@ -158,6 +380,26 @@ fn build_app(state: D6LaunchState) -> (App, Entity, Entity) {
+     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+         STEP_SECONDS,
+     )));
++    let floor = spawn_tray(&mut app);
++    let die = app
++        .world_mut()
++        .spawn((
++            RigidBody::Dynamic,
++            Collider::convex_hull(d6_geometry().collider_vertices()).expect("valid d6 hull"),
++            CollidingEntities::default(),
++            Friction::new(0.65),
++            Restitution::new(0.32),
++            LinearDamping(0.18),
++            AngularDamping(0.28),
++            LinearVelocity(state.linear_velocity),
++            AngularVelocity(state.angular_velocity),
++            Transform::from_translation(state.position).with_rotation(state.orientation),
++        ))
++        .id();
++    (app, die, floor)
++}
++
++fn spawn_tray(app: &mut App) -> Entity {
+     let floor = app
+         .world_mut()
+         .spawn((
+@@ -180,22 +422,7 @@ fn build_app(state: D6LaunchState) -> (App, Entity, Entity) {
+             Transform::from_translation(translation),
+         ));
+     }
+-    let die = app
+-        .world_mut()
+-        .spawn((
+-            RigidBody::Dynamic,
+-            Collider::convex_hull(d6_geometry().collider_vertices()).expect("valid d6 hull"),
+-            CollidingEntities::default(),
+-            Friction::new(0.65),
+-            Restitution::new(0.32),
+-            LinearDamping(0.18),
+-            AngularDamping(0.28),
+-            LinearVelocity(state.linear_velocity),
+-            AngularVelocity(state.angular_velocity),
+-            Transform::from_translation(state.position).with_rotation(state.orientation),
+-        ))
+-        .id();
+-    (app, die, floor)
++    floor
+ }
+ 
+ const fn kind_key(kind: LaunchKind) -> u8 {
