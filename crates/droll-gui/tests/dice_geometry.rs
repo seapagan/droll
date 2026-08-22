@@ -449,6 +449,12 @@ fn test_d6_symmetries_preserve_vertices_faces_and_opposites() {
             .collect::<BTreeSet<_>>();
         assert_eq!(mapped, BTreeSet::from([1, 2, 3, 4, 5, 6]));
         for face in geometry.faces {
+            let mapped_face = symmetry.map_face(face);
+            let mapped_vertices = face
+                .vertices
+                .map(|index| symmetry.rotation * geometry.vertices[index]);
+            let expected_vertices = mapped_face.vertices.map(|index| geometry.vertices[index]);
+            assert_same_vertex_set(mapped_vertices, expected_vertices);
             let opposite = geometry
                 .faces
                 .into_iter()
@@ -606,7 +612,7 @@ fn test_labels_and_orientation_marks_are_excluded_from_collider_mass_inputs() {
     );
 }
 
-fn assert_same_vertex_set(left: [Vec3; 8], right: [Vec3; 8]) {
+fn assert_same_vertex_set<const N: usize>(left: [Vec3; N], right: [Vec3; N]) {
     for vertex in left {
         assert!(
             right
