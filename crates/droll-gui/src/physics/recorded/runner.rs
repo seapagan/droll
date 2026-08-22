@@ -41,6 +41,8 @@ struct DieRecorder {
     samples: Vec<TrajectorySample>,
     stable_steps: u16,
     stable_face: Option<u8>,
+    stable_support: Option<super::types::SupportClassification>,
+    support_invalidity: Option<InvalidityReason>,
     last_face: FaceObservation,
     linear_speed: f32,
     angular_speed: f32,
@@ -149,7 +151,7 @@ fn run_attempt(
             );
         }
     }
-    let reason = terminal_watchdog_reason(&recorders);
+    let reason = terminal_watchdog_reason(&recorders, request.validity());
     failed_attempt(
         hidden,
         recorders,
@@ -302,6 +304,8 @@ fn create_recorders(request: &PhysicalBatchRequest) -> Vec<DieRecorder> {
             samples: Vec::with_capacity(request.validity().watchdog_steps as usize),
             stable_steps: 0,
             stable_face: None,
+            stable_support: None,
+            support_invalidity: None,
             last_face: observe_face(kind, Quat::IDENTITY, request.validity()),
             linear_speed: f32::INFINITY,
             angular_speed: f32::INFINITY,
@@ -317,7 +321,14 @@ fn record_step(
     fixed_step: u32,
     request: &PhysicalBatchRequest,
 ) -> Result<(), InvalidityReason> {
-    for (entity, recorder) in hidden.dice.iter().copied().zip(recorders.iter_mut()) {
+    let positions = die_positions(hidden);
+    for (index, (entity, recorder)) in hidden
+        .dice
+        .iter()
+        .copied()
+        .zip(recorders.iter_mut())
+        .enumerate()
+    {
         let world = hidden.app.world();
         let position = world.get::<Position>(entity).expect("die position").0;
         let raw_rotation = world.get::<Rotation>(entity).expect("die rotation").0;
@@ -354,7 +365,8 @@ fn record_step(
         recorder.linear_speed = linear.length();
         recorder.angular_speed = angular.length();
         update_contact_diagnostics(hidden, entity, recorder, fixed_step);
-        update_stability(hidden, entity, recorder, request.validity());
+        let support = current_support(hidden, &positions, index, entity, request.validity());
+        update_stability(recorder, support, request.validity());
     }
     Ok(())
 }
@@ -408,33 +420,34 @@ fn continuous_orientation(previous: Option<&TrajectorySample>, raw: Quat) -> Qua
 }
 
 fn update_stability(
-    hidden: &HiddenWorld,
-    entity: Entity,
     recorder: &mut DieRecorder,
+    support: Result<super::types::SupportClassification, InvalidityReason>,
     policy: super::validity::PhysicalValidityPolicy,
 ) {
-    let contacts = hidden
-        .app
-        .world()
-        .get::<CollidingEntities>(entity)
-        .expect("collision tracking");
-    let supported = contacts.contains(&hidden.floor)
-        || contacts
-            .iter()
-            .any(|candidate| hidden.dice.contains(candidate));
     let resting = recorder.linear_speed <= policy.rest_linear_speed
         && recorder.angular_speed <= policy.rest_angular_speed
-        && recorder.last_face.unambiguous
-        && supported;
-    if resting && recorder.stable_face == Some(recorder.last_face.value) {
-        recorder.stable_steps = recorder.stable_steps.saturating_add(1);
-    } else if resting {
-        recorder.stable_face = Some(recorder.last_face.value);
-        recorder.stable_steps = 1;
-    } else {
-        recorder.stable_face = None;
-        recorder.stable_steps = 0;
+        && recorder.last_face.unambiguous;
+    recorder.support_invalidity = support.as_ref().err().copied();
+    match support {
+        Ok(current_support) if resting => {
+            let same_window = recorder.stable_face == Some(recorder.last_face.value)
+                && recorder.stable_support.as_ref() == Some(&current_support);
+            recorder.stable_face = Some(recorder.last_face.value);
+            recorder.stable_support = Some(current_support);
+            recorder.stable_steps = if same_window {
+                recorder.stable_steps.saturating_add(1)
+            } else {
+                1
+            };
+        }
+        _ => reset_stability(recorder),
     }
+}
+
+fn reset_stability(recorder: &mut DieRecorder) {
+    recorder.stable_face = None;
+    recorder.stable_support = None;
+    recorder.stable_steps = 0;
 }
 
 fn finish_attempt(
@@ -444,18 +457,7 @@ fn finish_attempt(
     wall_duration: Duration,
     request: &PhysicalBatchRequest,
 ) -> Result<AcceptedAttempt, (InvalidityReason, AcceptedAttempt)> {
-    let positions = hidden
-        .dice
-        .iter()
-        .map(|entity| {
-            hidden
-                .app
-                .world()
-                .get::<Position>(*entity)
-                .expect("position")
-                .0
-        })
-        .collect::<Vec<_>>();
+    let positions = die_positions(&hidden);
     let mut recorded_dice = Vec::with_capacity(recorders.len());
     for (index, (entity, recorder)) in hidden.dice.iter().copied().zip(recorders).enumerate() {
         match finish_die(
@@ -489,6 +491,47 @@ fn finish_die(
     recorder: DieRecorder,
     policy: super::validity::PhysicalValidityPolicy,
 ) -> Result<RecordedDie, InvalidityReason> {
+    let support = current_support(hidden, positions, index, entity, policy)?;
+    Ok(RecordedDie {
+        ordinal: recorder.ordinal,
+        kind: recorder.kind,
+        samples: recorder.samples,
+        natural_terminal_face: recorder.last_face.value,
+        terminal: NaturalTerminalDiagnostics {
+            upward_score: recorder.last_face.upward_score,
+            runner_up_score: recorder.last_face.runner_up_score,
+            support_boundary_margin_radians: recorder.last_face.support_boundary_margin_radians,
+            linear_speed: recorder.linear_speed,
+            angular_speed: recorder.angular_speed,
+            stable_steps: recorder.stable_steps,
+            support,
+            contacts: recorder.contact_diagnostics,
+        },
+    })
+}
+
+fn die_positions(hidden: &HiddenWorld) -> Vec<Vec3> {
+    hidden
+        .dice
+        .iter()
+        .map(|entity| {
+            hidden
+                .app
+                .world()
+                .get::<Position>(*entity)
+                .expect("position")
+                .0
+        })
+        .collect()
+}
+
+fn current_support(
+    hidden: &HiddenWorld,
+    positions: &[Vec3],
+    index: usize,
+    entity: Entity,
+    policy: super::validity::PhysicalValidityPolicy,
+) -> Result<super::types::SupportClassification, InvalidityReason> {
     let contacts = hidden
         .app
         .world()
@@ -507,29 +550,13 @@ fn finish_die(
             )
         })
         .collect::<Vec<_>>();
-    let support = classify_support(
-        recorder.ordinal,
+    classify_support(
+        u16::try_from(index).expect("batch size checked"),
         positions[index],
         contacts.contains(&hidden.floor),
         &supporting,
         policy,
-    )?;
-    Ok(RecordedDie {
-        ordinal: recorder.ordinal,
-        kind: recorder.kind,
-        samples: recorder.samples,
-        natural_terminal_face: recorder.last_face.value,
-        terminal: NaturalTerminalDiagnostics {
-            upward_score: recorder.last_face.upward_score,
-            runner_up_score: recorder.last_face.runner_up_score,
-            support_boundary_margin_radians: recorder.last_face.support_boundary_margin_radians,
-            linear_speed: recorder.linear_speed,
-            angular_speed: recorder.angular_speed,
-            stable_steps: recorder.stable_steps,
-            support,
-            contacts: recorder.contact_diagnostics,
-        },
-    })
+    )
 }
 
 fn accepted_attempt(
@@ -579,7 +606,10 @@ fn failed_attempt(
     ))
 }
 
-fn terminal_watchdog_reason(recorders: &[DieRecorder]) -> InvalidityReason {
+fn terminal_watchdog_reason(
+    recorders: &[DieRecorder],
+    policy: super::validity::PhysicalValidityPolicy,
+) -> InvalidityReason {
     if let Some(recorder) = recorders
         .iter()
         .find(|recorder| !recorder.last_face.unambiguous)
@@ -587,10 +617,22 @@ fn terminal_watchdog_reason(recorders: &[DieRecorder]) -> InvalidityReason {
         InvalidityReason::AmbiguousUpwardFace {
             ordinal: recorder.ordinal,
         }
+    } else if let Some(reason) = recorders
+        .iter()
+        .filter(|recorder| {
+            recorder.linear_speed <= policy.rest_linear_speed
+                && recorder.angular_speed <= policy.rest_angular_speed
+        })
+        .find_map(|recorder| recorder.support_invalidity)
+    {
+        reason
     } else {
         InvalidityReason::WatchdogExpired
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 fn attempt_diagnostic(
     request: &PhysicalBatchRequest,
