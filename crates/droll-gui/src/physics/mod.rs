@@ -17,10 +17,14 @@ pub use launch::{
 };
 pub use metrics::{DieMetrics, MetricSummary, TransitionSample};
 pub use recorded::{
-    AttemptDiagnostic, AttemptOutcome, CalibrationMetrics, ContactDiagnostics, DieKind,
-    InvalidityReason, NaturalTerminalDiagnostics, PhysicalBatchRequest, PhysicalTray,
-    PhysicalValidityPolicy, PreparationFailure, RecordedBatch, RecordedDie, SupportClassification,
-    TrajectorySample, prepare_recorded_batch,
+    AttemptDiagnostic, AttemptOutcome, CalibrationMetrics, ContactDiagnostics,
+    D6PresentationMapping, D6PresentationPhase, DieKind, FixedD6Presentation, InvalidityReason,
+    NaturalTerminalDiagnostics, NumberedVisual, PhysicalBatchRequest, PhysicalTray,
+    PhysicalValidityPolicy, PlaybackError, PlaybackRoot, PreparationFailure, PresentationMapError,
+    RecordedBatch, RecordedDie, RecordedPlaybackPlugin, RecordedTrajectoryPlayback,
+    SampledPlaybackTransform, SemanticPresentationMap, SupportClassification, TrajectorySample,
+    compose_visible_orientation, map_d6_presentation, natural_record_identity,
+    prepare_recorded_batch, sample_recorded_transform,
 };
 pub use state::{DieLifecycle, DieObservation, DieState, TransitionReason, advance_lifecycle};
 pub use symmetry_launch::{
