@@ -1,5 +1,6 @@
 //! Bounded, development-only Stage 1 physics scenario harness.
 
+mod recorded_replay;
 mod scenario;
 
 use avian3d::prelude::{Collider, Friction, RigidBody};
@@ -15,6 +16,9 @@ use crate::physics::{
     DieLifecycle, DieMetrics, DieState, DirectedDie, DirectedPhysicsPlugin, SymmetryDie,
     SymmetryDieState, SymmetryLifecycle, SymmetryMetrics, SymmetryPhysicsPlugin, TraySurface,
     directed_d6_components, symmetry_d6_components,
+};
+use recorded_replay::{
+    advance_recorded_replay_cases, setup_recorded_replay, update_recorded_replay_window_status,
 };
 
 pub use scenario::{
@@ -45,27 +49,42 @@ pub fn build_spike_app(options: SpikeOptions) -> App {
         options.mode.as_str()
     );
     let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title,
-                present_mode: PresentMode::AutoVsync,
-                ..default()
-            }),
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title,
+            present_mode: PresentMode::AutoVsync,
             ..default()
         }),
-        avian3d::prelude::PhysicsPlugins::default(),
-    ));
+        ..default()
+    }));
     match options.mode {
-        SpikeMode::CandidateD => app.add_plugins(DirectedPhysicsPlugin),
-        SpikeMode::SymmetryLaunch => app.add_plugins(SymmetryPhysicsPlugin),
+        SpikeMode::CandidateD => app.add_plugins((
+            avian3d::prelude::PhysicsPlugins::default(),
+            DirectedPhysicsPlugin,
+        )),
+        SpikeMode::RecordedReplay => app.add_plugins(crate::physics::RecordedPlaybackPlugin),
+        SpikeMode::SymmetryLaunch => app.add_plugins((
+            avian3d::prelude::PhysicsPlugins::default(),
+            SymmetryPhysicsPlugin,
+        )),
     };
-    app.insert_resource(options)
-        .add_systems(Startup, setup_spike)
-        .add_systems(
+    let mode = options.mode;
+    app.insert_resource(options);
+    if mode == SpikeMode::RecordedReplay {
+        app.add_systems(Startup, setup_recorded_replay).add_systems(
+            Update,
+            (
+                advance_recorded_replay_cases,
+                update_recorded_replay_window_status,
+                escape_to_exit,
+            ),
+        );
+    } else {
+        app.add_systems(Startup, setup_spike).add_systems(
             Update,
             (advance_cases, update_window_status, escape_to_exit),
         );
+    }
     app
 }
 
@@ -96,6 +115,7 @@ fn setup_spike(
 fn selected_cases(options: &SpikeOptions) -> Result<Vec<SpikeCase>, String> {
     match options.mode {
         SpikeMode::CandidateD => options.scenario.selected_cases(options.case_id.as_deref()),
+        SpikeMode::RecordedReplay => unreachable!("recorded replay has an isolated setup path"),
         SpikeMode::SymmetryLaunch if options.scenario == SpikeScenario::D6Faces => {
             let cases = symmetry_d6_cases();
             match options.case_id.as_deref() {
@@ -191,6 +211,7 @@ fn spawn_die(
     ));
     match mode {
         SpikeMode::CandidateD => entity.insert(directed_d6_components(case)),
+        SpikeMode::RecordedReplay => unreachable!("recorded replay uses a render-only hierarchy"),
         SpikeMode::SymmetryLaunch => {
             let family = case.start.symmetry_family().expect("H1 case has a family");
             entity.insert(symmetry_d6_components(
@@ -252,6 +273,7 @@ fn advance_cases(
                 metrics.terminal_seconds,
             )
         }
+        SpikeMode::RecordedReplay => unreachable!("recorded replay uses isolated systems"),
         SpikeMode::SymmetryLaunch => {
             let Ok((state, metrics)) = symmetry_dice.get(sequence.active) else {
                 return;
@@ -315,6 +337,7 @@ fn update_window_status(
                 format!("{:?}", state.lifecycle),
             )
         }
+        SpikeMode::RecordedReplay => unreachable!("recorded replay uses isolated systems"),
         SpikeMode::SymmetryLaunch => {
             let Ok((die, state, rotation)) = symmetry_dice.get(sequence.active) else {
                 return;

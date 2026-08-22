@@ -6,6 +6,7 @@ use crate::physics::{D6LaunchFamily, LaunchNuisance, d6_passing_launch_families}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpikeMode {
     CandidateD,
+    RecordedReplay,
     SymmetryLaunch,
 }
 
@@ -14,6 +15,7 @@ impl SpikeMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::CandidateD => "candidate-d",
+            Self::RecordedReplay => "recorded-replay",
             Self::SymmetryLaunch => "symmetry-launch",
         }
     }
@@ -25,6 +27,7 @@ impl FromStr for SpikeMode {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "candidate-d" => Ok(Self::CandidateD),
+            "recorded-replay" => Ok(Self::RecordedReplay),
             "symmetry-launch" => Ok(Self::SymmetryLaunch),
             _ => Err(format!("unknown Stage 1 mode `{value}`")),
         }

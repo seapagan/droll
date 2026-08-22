@@ -11,7 +11,7 @@ fn main() -> ExitCode {
         Err(message) => {
             eprintln!("error: {message}");
             eprintln!(
-                "usage: directed_physics_spike --scenario <name> --mode <candidate-d|symmetry-launch> [--case <case-id>]"
+                "usage: directed_physics_spike --scenario <name> --mode <candidate-d|recorded-replay|symmetry-launch> [--case <case-id>]"
             );
             ExitCode::from(2)
         }
