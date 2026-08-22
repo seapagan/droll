@@ -4,7 +4,7 @@ use avian3d::prelude::{Collider, ComputeMassProperties3d};
 use bevy::{
     math::{Mat3, Quat},
     mesh::{Indices, Mesh, VertexAttributeValues},
-    prelude::Vec3,
+    prelude::{Transform, Vec3},
 };
 use droll_gui::dice::{
     D20_FACE_TO_FACE, D20SolidSymmetry, d6_geometry, d6_labels, d6_mesh, d6_solid_symmetries,
@@ -248,6 +248,23 @@ fn test_d20_symmetries_preserve_geometry_topology_and_mass() {
                 < D20_EPSILON
         );
         assert_mapped_d20_relationships(symmetry);
+    }
+}
+
+#[test]
+fn test_d20_symmetries_preserve_rendered_plain_solid_and_centred_uniform_pivot() {
+    let geometry = d20_geometry();
+    let mesh = d20_mesh();
+    let positions = mesh_positions(&mesh, "d20");
+    let pivot = geometry.vertices.into_iter().sum::<Vec3>() / geometry.vertices.len() as f32;
+    assert!(pivot.length() < D20_EPSILON);
+
+    let authored = Transform::from_scale(Vec3::splat(1.35));
+    assert_eq!(authored.scale, Vec3::splat(authored.scale.x));
+    for symmetry in d20_solid_symmetries() {
+        let baseline = transformed_points(positions, authored, Quat::IDENTITY);
+        let mapped = transformed_points(positions, authored, symmetry.rotation);
+        assert_same_points(&baseline, &mapped, D20_EPSILON);
     }
 }
 
@@ -516,6 +533,79 @@ fn test_d6_symmetry_keeps_collider_mass_properties_and_pips_render_only() {
     }
 }
 
+#[test]
+fn test_d6_symmetries_preserve_rendered_plain_solid_and_centred_uniform_pivot() {
+    let geometry = d6_geometry();
+    let mesh = d6_mesh();
+    let positions = mesh_positions(&mesh, "d6");
+    let pivot = geometry.vertices.into_iter().sum::<Vec3>() / geometry.vertices.len() as f32;
+    assert!(pivot.length() < EPSILON);
+
+    let authored = Transform::from_scale(Vec3::splat(0.85));
+    assert_eq!(authored.scale, Vec3::splat(authored.scale.x));
+    for symmetry in d6_solid_symmetries() {
+        let baseline = transformed_points(positions, authored, Quat::IDENTITY);
+        let mapped = transformed_points(positions, authored, symmetry.rotation);
+        assert_same_points(&baseline, &mapped, EPSILON);
+    }
+}
+
+#[test]
+fn test_replay_hierarchy_composes_recorded_symmetry_then_visual_base() {
+    let recorded = Transform::from_xyz(1.2, -0.4, 2.1).with_rotation(Quat::from_euler(
+        bevy::math::EulerRot::XYZ,
+        0.41,
+        -0.73,
+        0.19,
+    ));
+    let symmetry = Transform::from_rotation(Quat::from_rotation_y(0.5 * std::f32::consts::PI));
+    let visual_base = Transform::from_xyz(0.08, -0.03, 0.11)
+        .with_rotation(Quat::from_rotation_x(0.37))
+        .with_scale(Vec3::splat(0.9));
+    let visible = recorded * symmetry * visual_base;
+    let expected_rotation =
+        (recorded.rotation * symmetry.rotation * visual_base.rotation).normalize();
+    let probe = Vec3::new(0.17, 0.29, -0.31);
+
+    assert!(same_rotation(visible.rotation, expected_rotation));
+    assert!(
+        (visible.transform_point(probe)
+            - recorded
+                .transform_point(symmetry.transform_point(visual_base.transform_point(probe))))
+        .length()
+            < EPSILON
+    );
+    let wrong_order = recorded * visual_base * symmetry;
+    assert!((visible.transform_point(probe) - wrong_order.transform_point(probe)).length() > 0.05);
+}
+
+#[test]
+fn test_labels_and_orientation_marks_are_excluded_from_collider_mass_inputs() {
+    let d6 = d6_geometry();
+    let d20 = d20_geometry();
+    let d6_collider_points = d6.collider_vertices();
+    let d20_collider_points = d20.collider_vertices();
+
+    assert_eq!(d6_collider_points, d6.vertices);
+    assert_eq!(d20_collider_points, d20.vertices);
+    assert!(
+        d6_labels()
+            .iter()
+            .all(|pip| !d6_collider_points.contains(&pip.center))
+    );
+    assert!(d20_labels().iter().any(|label| label.has_orientation_mark));
+    assert!(
+        d20_labels()
+            .iter()
+            .flat_map(|label| &label.vertices)
+            .all(|vertex| {
+                !d20_collider_points
+                    .iter()
+                    .any(|point| point.distance(*vertex) < D20_EPSILON)
+            })
+    );
+}
+
 fn assert_same_vertex_set(left: [Vec3; 8], right: [Vec3; 8]) {
     for vertex in left {
         assert!(
@@ -569,6 +659,33 @@ fn assert_same_d20_vertex_set(left: [Vec3; 12], right: [Vec3; 12]) {
             "missing vertex {vertex:?}"
         );
     }
+}
+
+fn assert_same_points(left: &[[f32; 3]], right: &[[f32; 3]], epsilon: f32) {
+    for point in left {
+        let point = Vec3::from_array(*point);
+        assert!(
+            right
+                .iter()
+                .any(|candidate| Vec3::from_array(*candidate).distance(point) < epsilon),
+            "missing transformed render point {point:?}"
+        );
+    }
+}
+
+fn transformed_points(
+    positions: &[[f32; 3]],
+    authored: Transform,
+    rotation: Quat,
+) -> Vec<[f32; 3]> {
+    positions
+        .iter()
+        .map(|position| {
+            authored
+                .transform_point(rotation * Vec3::from_array(*position))
+                .to_array()
+        })
+        .collect()
 }
 
 fn assert_mapped_d20_relationships(symmetry: D20SolidSymmetry) {
