@@ -160,12 +160,14 @@ fn spawn_recorded_die(
             RecordedTrajectoryPlayback::new(die.samples.clone().into(), record.fixed_step),
             Transform::from_translation(first.world_position)
                 .with_rotation(first.recorded_orientation),
+            Visibility::Inherited,
         ))
         .with_children(|root| {
             root.spawn((
                 NumberedVisual,
                 FixedD6Presentation(mapping),
                 Transform::from_rotation(mapping.symmetry),
+                Visibility::Inherited,
             ))
             .with_children(|visual| {
                 visual.spawn((Mesh3d(mesh), MeshMaterial3d(die_material)));
@@ -291,7 +293,105 @@ fn log_case_summary(sequence: &RecordedReplaySequence) {
 
 #[cfg(test)]
 mod tests {
-    use super::selected_requested_faces;
+    use bevy::{
+        asset::AssetPlugin, camera::visibility::VisibilityPlugin,
+        mesh::skinning::SkinnedMeshInverseBindposes, transform::TransformPlugin,
+    };
+
+    use super::*;
+
+    #[derive(Resource)]
+    struct ReplaySpawnFixture {
+        record: RecordedBatch,
+        presentation: SemanticPresentationMap,
+        root: Option<Entity>,
+    }
+
+    fn spawn_replay_fixture(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+        mut fixture: ResMut<ReplaySpawnFixture>,
+    ) {
+        fixture.root = Some(spawn_recorded_die(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &fixture.record,
+            &fixture.presentation,
+        ));
+    }
+
+    fn replay_fixture_app() -> (App, Transform, FixedD6Presentation) {
+        let request = PhysicalBatchRequest::new(vec![DieKind::D6], RECORDED_D6_PHYSICAL_SEED);
+        let record = prepare_recorded_batch(&request).expect("recorded-replay fixture preparation");
+        let presentation = SemanticPresentationMap::for_single_d6(&record, 4)
+            .expect("recorded-replay fixture presentation");
+        let first =
+            sample_recorded_transform(&record.dice[0].samples, record.fixed_step, Duration::ZERO)
+                .expect("fixture first sample");
+        let expected_root = Transform::from_translation(first.world_position)
+            .with_rotation(first.recorded_orientation);
+        let expected_presentation = FixedD6Presentation(presentation.d6[0]);
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            TransformPlugin,
+            VisibilityPlugin,
+        ))
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .insert_resource(ReplaySpawnFixture {
+            record,
+            presentation,
+            root: None,
+        })
+        .add_systems(Startup, spawn_replay_fixture);
+        (app, expected_root, expected_presentation)
+    }
+
+    fn assert_playback_root(world: &World, root: Entity, expected: &Transform) -> Entity {
+        let entity = world.entity(root);
+        assert!(entity.contains::<PlaybackRoot>());
+        assert!(entity.contains::<RecordedTrajectoryPlayback>());
+        assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Inherited));
+        assert!(entity.get::<InheritedVisibility>().unwrap().get());
+        assert!(entity.contains::<ViewVisibility>());
+        assert_eq!(entity.get::<Transform>().unwrap(), expected);
+        let children = entity.get::<Children>().unwrap();
+        assert_eq!(children.len(), 1);
+        children[0]
+    }
+
+    fn assert_numbered_visual(
+        world: &World,
+        visual: Entity,
+        expected: FixedD6Presentation,
+    ) -> Vec<Entity> {
+        let entity = world.entity(visual);
+        assert!(entity.contains::<NumberedVisual>());
+        assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Inherited));
+        assert!(entity.get::<InheritedVisibility>().unwrap().get());
+        assert!(entity.contains::<ViewVisibility>());
+        assert_eq!(entity.get::<FixedD6Presentation>(), Some(&expected));
+        assert_eq!(
+            entity.get::<Transform>().unwrap(),
+            &Transform::from_rotation(expected.0.symmetry)
+        );
+        entity.get::<Children>().unwrap().iter().collect()
+    }
+
+    fn assert_visible_geometry(world: &World, geometry: &[Entity]) {
+        assert_eq!(geometry.len(), 1 + d6_labels().len());
+        for &child in geometry {
+            let entity = world.entity(child);
+            assert!(entity.contains::<Mesh3d>());
+            assert!(entity.get::<InheritedVisibility>().unwrap().get());
+            assert!(entity.contains::<ViewVisibility>());
+        }
+    }
 
     #[test]
     fn test_full_checkpoint_uses_deterministic_one_through_six_order() {
@@ -304,5 +404,16 @@ mod tests {
             selected_requested_faces(Some("d6-recorded-target-4")),
             vec![4]
         );
+    }
+
+    #[test]
+    fn test_recorded_replay_spawn_builds_complete_visible_transform_hierarchy() {
+        let (mut app, expected_root, expected_presentation) = replay_fixture_app();
+        app.update();
+        let world = app.world();
+        let root = world.resource::<ReplaySpawnFixture>().root.unwrap();
+        let visual = assert_playback_root(world, root, &expected_root);
+        let geometry = assert_numbered_visual(world, visual, expected_presentation);
+        assert_visible_geometry(world, &geometry);
     }
 }
