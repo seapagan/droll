@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use avian3d::collision::contact_types::PackedFeatureId;
 use avian3d::prelude::*;
 use bevy::{app::FixedPostUpdate, prelude::*, time::TimeUpdateStrategy};
 
@@ -530,7 +531,14 @@ fn record_step(
         recorder.linear_speed = linear.length();
         recorder.angular_speed = angular.length();
         update_contact_diagnostics(hidden, entity, recorder, fixed_step);
-        let support = current_support(hidden, &positions, index, entity, request.validity());
+        let support = current_support(
+            hidden,
+            &positions,
+            index,
+            entity,
+            recorder.kind,
+            request.validity(),
+        );
         update_stability(recorder, support, request.validity());
     }
     Ok(())
@@ -664,7 +672,7 @@ fn finish_die(
     recorder: DieRecorder,
     policy: super::validity::PhysicalValidityPolicy,
 ) -> Result<RecordedDie, InvalidityReason> {
-    let support = current_support(hidden, positions, index, entity, policy)?;
+    let support = current_support(hidden, positions, index, entity, recorder.kind, policy)?;
     Ok(RecordedDie {
         ordinal: recorder.ordinal,
         kind: recorder.kind,
@@ -704,6 +712,7 @@ fn current_support(
     positions: &[Vec3],
     index: usize,
     entity: Entity,
+    kind: DieKind,
     policy: super::validity::PhysicalValidityPolicy,
 ) -> Result<super::types::SupportClassification, InvalidityReason> {
     let contacts = hidden
@@ -711,26 +720,83 @@ fn current_support(
         .world()
         .get::<CollidingEntities>(entity)
         .expect("collision tracking");
-    let supporting = hidden
+    let supporting_entities = hidden
         .dice
         .iter()
         .enumerate()
         .filter(|(_, candidate)| contacts.contains(*candidate))
         .filter(|(candidate_index, _)| positions[*candidate_index].y < positions[index].y)
+        .map(|(candidate_index, candidate)| (candidate_index, *candidate))
+        .collect::<Vec<_>>();
+    let supporting = supporting_entities
+        .iter()
         .map(|(candidate_index, _)| {
             (
-                u16::try_from(candidate_index).expect("batch size checked"),
-                positions[candidate_index],
+                u16::try_from(*candidate_index).expect("batch size checked"),
+                positions[*candidate_index],
             )
         })
         .collect::<Vec<_>>();
+    let ordinal = u16::try_from(index).expect("batch size checked");
+    let touches_floor = contacts.contains(&hidden.floor);
+    if kind == DieKind::D6
+        && touches_floor
+        && !d6_contact_is_face_bearing(hidden, entity, hidden.floor)
+    {
+        let stack = classify_support(ordinal, positions[index], false, &supporting, policy);
+        let face_bearing_stack = !supporting_entities.is_empty()
+            && supporting_entities
+                .iter()
+                .all(|(_, support)| d6_contact_is_face_bearing(hidden, entity, *support));
+        return match stack {
+            Ok(classification) if face_bearing_stack => Ok(classification),
+            _ => Err(InvalidityReason::EdgeOrCornerTraySupport { ordinal }),
+        };
+    }
     classify_support(
-        u16::try_from(index).expect("batch size checked"),
+        ordinal,
         positions[index],
-        contacts.contains(&hidden.floor),
+        touches_floor,
         &supporting,
         policy,
     )
+}
+
+fn d6_contact_is_face_bearing(hidden: &HiddenWorld, die: Entity, support: Entity) -> bool {
+    let graph = hidden.app.world().resource::<ContactGraph>();
+    let Some((_, pair)) = graph.get(die, support) else {
+        return false;
+    };
+    if !pair.is_touching() {
+        return false;
+    }
+    let features = pair.manifolds.iter().flat_map(|manifold| {
+        manifold.points.iter().map(|point| {
+            if pair.collider1 == die {
+                point.feature_id1
+            } else {
+                point.feature_id2
+            }
+        })
+    });
+    d6_tray_features_are_face_bearing(features)
+}
+
+fn d6_tray_features_are_face_bearing(features: impl IntoIterator<Item = PackedFeatureId>) -> bool {
+    let mut vertices = BTreeSet::new();
+    for feature in features {
+        if feature.is_face() {
+            return true;
+        }
+        if feature.is_vertex() {
+            vertices.insert(feature.0);
+        }
+    }
+    // A cube face is two-dimensional: contact with a plane exposes either a
+    // face feature or at least three distinct coplanar vertices. An edge can
+    // expose at most two vertices and a corner exactly one, so this geometric
+    // dimension test needs no outcome-tuned angular or distance threshold.
+    vertices.len() >= 3
 }
 
 fn accepted_attempt(

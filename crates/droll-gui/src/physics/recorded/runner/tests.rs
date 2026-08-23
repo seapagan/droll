@@ -143,6 +143,10 @@ fn test_watchdog_preserves_stable_support_invalidity() {
             stack_support(&[(0, Vec3::new(0.30, 0.20, 0.0))]),
             InvalidityReason::UnreadableOrPathologicalStack { ordinal: 1 },
         ),
+        (
+            Err(InvalidityReason::EdgeOrCornerTraySupport { ordinal: 1 }),
+            InvalidityReason::EdgeOrCornerTraySupport { ordinal: 1 },
+        ),
     ] {
         let mut recorder = resting_recorder();
         sample(&mut recorder, support);
@@ -154,4 +158,91 @@ fn test_watchdog_preserves_stable_support_invalidity() {
             expected
         );
     }
+}
+
+#[test]
+fn test_d6_face_bearing_tray_contact_passes() {
+    assert!(d6_tray_features_are_face_bearing([
+        PackedFeatureId::vertex(0),
+        PackedFeatureId::vertex(1),
+        PackedFeatureId::vertex(2),
+    ]));
+    assert!(d6_tray_features_are_face_bearing([PackedFeatureId::face(
+        0
+    )]));
+}
+
+#[test]
+fn test_d6_edge_bearing_tray_contact_fails() {
+    assert!(!d6_tray_features_are_face_bearing([
+        PackedFeatureId::vertex(0),
+        PackedFeatureId::vertex(1),
+    ]));
+}
+
+#[test]
+fn test_d6_corner_bearing_tray_contact_fails() {
+    assert!(!d6_tray_features_are_face_bearing([
+        PackedFeatureId::vertex(0)
+    ]));
+}
+
+#[test]
+fn test_edge_or_corner_tray_support_cannot_accumulate_stability() {
+    let mut recorder = resting_recorder();
+    let invalid = InvalidityReason::EdgeOrCornerTraySupport { ordinal: 1 };
+    for _ in 0..36 {
+        sample(&mut recorder, Err(invalid));
+    }
+    assert_eq!(recorder.stable_steps, 0);
+    assert_eq!(recorder.support_invalidity, Some(invalid));
+}
+
+#[test]
+fn test_becoming_face_supported_restarts_the_full_stable_window() {
+    let mut recorder = resting_recorder();
+    for _ in 0..20 {
+        sample(&mut recorder, Ok(SupportClassification::Tray));
+    }
+    assert_eq!(recorder.stable_steps, 20);
+    for _ in 0..35 {
+        sample(
+            &mut recorder,
+            Err(InvalidityReason::EdgeOrCornerTraySupport { ordinal: 1 }),
+        );
+    }
+    sample(&mut recorder, Ok(SupportClassification::Tray));
+    assert_eq!(recorder.stable_steps, 1);
+}
+
+#[test]
+fn test_rejected_phase3_attempt_reports_cocked_ordinal_three() {
+    const BASE_SEED: u64 = 0x4D6A_1E00_0000_0003;
+    let request = PhysicalBatchRequest::new(vec![DieKind::D6; 4], BASE_SEED);
+    let seed = attempt_seed(BASE_SEED, 1);
+    assert_eq!(seed, 0x8D03_F82B_7AFD_ABA8);
+    let Err((reason, attempt)) = run_attempt(&request, seed) else {
+        panic!("owner-rejected attempt must fail physical validity");
+    };
+    assert_eq!(
+        reason,
+        InvalidityReason::EdgeOrCornerTraySupport { ordinal: 3 }
+    );
+    let rejected = &attempt.dice[3];
+    let terminal = rejected.samples.last().expect("terminal sample");
+    assert!(attempt.dice.iter().all(|die| die.samples.len() == 1_080));
+    assert_eq!(rejected.natural_terminal_face, 4);
+    assert!((terminal.world_position[1] - 0.681_006_5).abs() < 1.0e-5);
+    for (actual, expected) in terminal.unit_orientation.iter().zip([
+        -0.705_490_8,
+        0.591_220_1,
+        -0.047_766_127,
+        0.387_891_6,
+    ]) {
+        assert!((actual - expected).abs() < 1.0e-5);
+    }
+    assert!((rejected.terminal.upward_score - 0.871_256_8).abs() < 1.0e-5);
+    assert!((rejected.terminal.runner_up_score - 0.490_827_3).abs() < 1.0e-5);
+    assert!((rejected.terminal.linear_speed - 0.000_528_76).abs() < 1.0e-6);
+    assert!((rejected.terminal.angular_speed - 0.000_722_152).abs() < 1.0e-6);
 }

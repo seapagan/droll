@@ -227,6 +227,7 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
         PHASE3_4D6_SEED,
     ))
     .expect("interacting 4d6 checkpoint record");
+    assert_phase3_retry(&record);
     assert_eq!(record.dice.len(), 4);
     assert_eq!(
         record
@@ -251,15 +252,35 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
         die.samples.len()
             == usize::try_from(record.calibration.fixed_steps).expect("bounded fixed steps")
     }));
+    report_phase3_checkpoint(&record, closest_spawn_distance);
+}
+
+fn assert_phase3_retry(record: &droll_gui::physics::RecordedBatch) {
+    assert_eq!(record.attempts.len(), 2);
+    assert_eq!(record.attempts[0].physical_seed, 0x8D03_F82B_7AFD_ABA8);
+    assert_eq!(record.attempts[0].fixed_steps, 1_080);
+    assert_eq!(
+        record.attempts[0].outcome,
+        AttemptOutcome::Invalid(InvalidityReason::EdgeOrCornerTraySupport { ordinal: 3 })
+    );
+    assert_eq!(record.attempts[1].physical_seed, 0x2091_2E49_51AD_02B4);
+    assert_eq!(record.attempts[1].outcome, AttemptOutcome::Valid);
+}
+
+fn report_phase3_checkpoint(record: &droll_gui::physics::RecordedBatch, closest: f32) {
+    let strongest = record
+        .contacts
+        .strongest_dice_contact
+        .expect("strongest genuine dice contact");
     eprintln!(
-        "phase3-4d6 id={:016x} seed={PHASE3_4D6_SEED:#018x} accepted={:#018x} attempts={} faces={:?} steps={} samples_per_die={} simulated={:?} closest_spawn={closest_spawn_distance:.6} interactions={} contact_steps={} strongest_time={:?} strongest={strongest:?} initials={:?}",
-        natural_record_identity(&record),
+        "phase3-4d6 id={:016x} seed={PHASE3_4D6_SEED:#018x} accepted={:#018x} attempts={:?} faces={:?} steps={} samples_per_die={} simulated={:?} closest_spawn={closest:.6} interactions={} contact_steps={} meaningful_pairs={:?} strongest_time={:?} strongest={strongest:?} terminals={:?} initials={:?}",
+        natural_record_identity(record),
         record
             .attempts
             .last()
             .expect("accepted attempt")
             .physical_seed,
-        record.attempts.len(),
+        record.attempts,
         record
             .dice
             .iter()
@@ -270,7 +291,13 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
         record.calibration.simulated_duration,
         record.contacts.dice_contact_interactions,
         record.contacts.dice_contact_samples.len(),
+        meaningful_contact_pairs(record),
         record.fixed_step * strongest.fixed_step,
+        record
+            .dice
+            .iter()
+            .map(|die| &die.terminal)
+            .collect::<Vec<_>>(),
         record
             .dice
             .iter()

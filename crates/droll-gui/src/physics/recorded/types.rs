@@ -188,6 +188,7 @@ pub enum InvalidityReason {
     NonfinitePhysicsState { ordinal: u16 },
     AmbiguousUpwardFace { ordinal: u16 },
     UnsupportedDie { ordinal: u16 },
+    EdgeOrCornerTraySupport { ordinal: u16 },
     UnreadableOrPathologicalStack { ordinal: u16 },
     WatchdogExpired,
     RecordOverflow,
