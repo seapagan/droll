@@ -165,6 +165,58 @@ fn test_d20_labels_are_parallel_outside_and_fit_their_faces() {
 }
 
 #[test]
+fn test_d20_two_digit_labels_are_visually_centred_and_contained() {
+    let geometry = d20_geometry();
+    for label in d20_labels().into_iter().filter(|label| label.value >= 10) {
+        let face = geometry.face(label.value).expect("label face exists");
+        let horizontal = label
+            .vertices
+            .iter()
+            .map(|vertex| (*vertex - face.center).dot(face.label_right))
+            .collect::<Vec<_>>();
+        let left = horizontal.iter().copied().fold(f32::INFINITY, f32::min);
+        let right = horizontal.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!((left + right).abs() < D20_EPSILON, "value={}", label.value);
+        for vertex in label.vertices {
+            assert_point_inside_face(
+                vertex - face.normal * 0.006,
+                face.vertices,
+                geometry.vertices,
+            );
+        }
+    }
+}
+
+#[test]
+fn test_d20_six_and_nine_keep_centred_orientation_marks() {
+    let geometry = d20_geometry();
+    for label in d20_labels() {
+        let face = geometry.face(label.value).expect("label face exists");
+        let marks = label
+            .vertices
+            .chunks_exact(4)
+            .filter(|rectangle| {
+                rectangle
+                    .iter()
+                    .map(|vertex| (*vertex - face.center).dot(face.label_up))
+                    .sum::<f32>()
+                    / 4.0
+                    < -0.08
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(marks.len(), usize::from(matches!(label.value, 6 | 9)));
+        for mark in marks {
+            let horizontal_center = mark
+                .iter()
+                .map(|vertex| (*vertex - face.center).dot(face.label_right))
+                .sum::<f32>()
+                / 4.0;
+            assert!(horizontal_center.abs() < D20_EPSILON);
+        }
+    }
+}
+
+#[test]
 fn test_d20_collider_mass_uses_only_canonical_vertices() {
     let geometry = d20_geometry();
     assert_eq!(geometry.collider_vertices(), geometry.vertices);

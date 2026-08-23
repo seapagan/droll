@@ -58,6 +58,18 @@ const DIGIT_WIDTH: f32 = 0.075;
 const DIGIT_HEIGHT: f32 = 0.13;
 const STROKE_WIDTH: f32 = 0.014;
 const DIGIT_GAP: f32 = 0.018;
+const SEGMENTS: [[bool; 7]; 10] = [
+    [true, true, true, false, true, true, true],
+    [false, false, true, false, false, true, false],
+    [true, false, true, true, true, false, true],
+    [true, false, true, true, false, true, true],
+    [false, true, true, true, false, true, false],
+    [true, true, false, true, false, true, true],
+    [true, true, false, true, true, true, true],
+    [true, false, true, false, false, true, false],
+    [true, true, true, true, true, true, true],
+    [true, true, true, true, false, true, true],
+];
 
 /// One generated numeric d20 label made only from triangles.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,8 +99,6 @@ fn d20_label(face: D20Face) -> D20Label {
     } else {
         vec![face.value]
     };
-    let total_width =
-        digits.len() as f32 * DIGIT_WIDTH + (digits.len().saturating_sub(1)) as f32 * DIGIT_GAP;
     let mut label = D20Label {
         value: face.value,
         face_value: face.value,
@@ -97,9 +107,10 @@ fn d20_label(face: D20Face) -> D20Label {
         indices: Vec::new(),
         has_orientation_mark: matches!(face.value, 6 | 9),
     };
-    for (index, digit) in digits.into_iter().enumerate() {
-        let x = -total_width / 2.0 + DIGIT_WIDTH / 2.0 + index as f32 * (DIGIT_WIDTH + DIGIT_GAP);
-        append_digit(&mut label, face, digit, x);
+    if digits.len() == 1 {
+        append_digit(&mut label, face, digits[0], 0.0);
+    } else {
+        append_digits(&mut label, face, &digits);
     }
     if label.has_orientation_mark {
         append_rect(
@@ -114,37 +125,57 @@ fn d20_label(face: D20Face) -> D20Label {
     label
 }
 
+fn append_digits(label: &mut D20Label, face: D20Face, digits: &[u8]) {
+    let bounds = digits
+        .iter()
+        .map(|digit| digit_visual_bounds(*digit))
+        .collect::<Vec<_>>();
+    let total_width = bounds.iter().map(|(left, right)| right - left).sum::<f32>()
+        + (digits.len() - 1) as f32 * DIGIT_GAP;
+    let mut cursor = -total_width / 2.0;
+    for (digit, (left, right)) in digits.iter().zip(bounds) {
+        append_digit(label, face, *digit, cursor - left);
+        cursor += right - left + DIGIT_GAP;
+    }
+}
+
 fn append_digit(label: &mut D20Label, face: D20Face, digit: u8, x: f32) {
-    const SEGMENTS: [[bool; 7]; 10] = [
-        [true, true, true, false, true, true, true],
-        [false, false, true, false, false, true, false],
-        [true, false, true, true, true, false, true],
-        [true, false, true, true, false, true, true],
-        [false, true, true, true, false, true, false],
-        [true, true, false, true, false, true, true],
-        [true, true, false, true, true, true, true],
-        [true, false, true, false, false, true, false],
-        [true, true, true, true, true, true, true],
-        [true, true, true, true, false, true, true],
-    ];
-    let h = DIGIT_HEIGHT / 2.0;
-    let w = DIGIT_WIDTH / 2.0;
-    let definitions = [
-        (x, h, DIGIT_WIDTH, STROKE_WIDTH),
-        (x - w, h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
-        (x + w, h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
-        (x, 0.0, DIGIT_WIDTH, STROKE_WIDTH),
-        (x - w, -h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
-        (x + w, -h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
-        (x, -h, DIGIT_WIDTH, STROKE_WIDTH),
-    ];
-    for (enabled, (cx, cy, width, height)) in
-        SEGMENTS[usize::from(digit)].into_iter().zip(definitions)
+    for (enabled, (cx, cy, width, height)) in SEGMENTS[usize::from(digit)]
+        .into_iter()
+        .zip(digit_segments())
     {
         if enabled {
-            append_rect(label, face, cx, cy, width, height);
+            append_rect(label, face, x + cx, cy, width, height);
         }
     }
+}
+
+fn digit_visual_bounds(digit: u8) -> (f32, f32) {
+    SEGMENTS[usize::from(digit)]
+        .into_iter()
+        .zip(digit_segments())
+        .filter(|(enabled, _)| *enabled)
+        .fold(
+            (f32::INFINITY, f32::NEG_INFINITY),
+            |bounds, (_, segment)| {
+                let (x, _, width, _) = segment;
+                (bounds.0.min(x - width / 2.0), bounds.1.max(x + width / 2.0))
+            },
+        )
+}
+
+fn digit_segments() -> [(f32, f32, f32, f32); 7] {
+    let h = DIGIT_HEIGHT / 2.0;
+    let w = DIGIT_WIDTH / 2.0;
+    [
+        (0.0, h, DIGIT_WIDTH, STROKE_WIDTH),
+        (-w, h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
+        (w, h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
+        (0.0, 0.0, DIGIT_WIDTH, STROKE_WIDTH),
+        (-w, -h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
+        (w, -h / 2.0, STROKE_WIDTH, DIGIT_HEIGHT / 2.0),
+        (0.0, -h, DIGIT_WIDTH, STROKE_WIDTH),
+    ]
 }
 
 fn append_rect(label: &mut D20Label, face: D20Face, x: f32, y: f32, width: f32, height: f32) {
