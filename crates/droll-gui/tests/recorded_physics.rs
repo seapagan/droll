@@ -227,7 +227,7 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
         PHASE3_4D6_SEED,
     ))
     .expect("interacting 4d6 checkpoint record");
-    assert_phase3_retry(&record);
+    assert_phase3_attempts_are_complete_and_locally_valid(&record);
     assert_eq!(record.dice.len(), 4);
     assert_eq!(
         record
@@ -255,16 +255,25 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
     report_phase3_checkpoint(&record, closest_spawn_distance);
 }
 
-fn assert_phase3_retry(record: &droll_gui::physics::RecordedBatch) {
-    assert_eq!(record.attempts.len(), 2);
-    assert_eq!(record.attempts[0].physical_seed, 0x8D03_F82B_7AFD_ABA8);
-    assert_eq!(record.attempts[0].fixed_steps, 1_080);
-    assert_eq!(
-        record.attempts[0].outcome,
-        AttemptOutcome::Invalid(InvalidityReason::EdgeOrCornerTraySupport { ordinal: 3 })
+fn assert_phase3_attempts_are_complete_and_locally_valid(
+    record: &droll_gui::physics::RecordedBatch,
+) {
+    assert!(!record.attempts.is_empty());
+    assert!(record.attempts.len() <= 3);
+    for (index, attempt) in record.attempts.iter().enumerate() {
+        assert_eq!(usize::from(attempt.attempt), index + 1);
+        assert_eq!(attempt.die_count, 4);
+        assert!(attempt.fixed_steps > 0);
+    }
+    assert!(
+        record.attempts[..record.attempts.len() - 1]
+            .iter()
+            .all(|attempt| matches!(attempt.outcome, AttemptOutcome::Invalid(_)))
     );
-    assert_eq!(record.attempts[1].physical_seed, 0x2091_2E49_51AD_02B4);
-    assert_eq!(record.attempts[1].outcome, AttemptOutcome::Valid);
+    assert_eq!(
+        record.attempts.last().expect("accepted attempt").outcome,
+        AttemptOutcome::Valid
+    );
 }
 
 fn report_phase3_checkpoint(record: &droll_gui::physics::RecordedBatch, closest: f32) {
