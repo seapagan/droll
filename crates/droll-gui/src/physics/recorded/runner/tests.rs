@@ -1,5 +1,5 @@
 use super::*;
-use crate::physics::recorded::types::SupportClassification;
+use crate::physics::recorded::types::{PhysicalTray, SupportClassification};
 
 fn resting_recorder() -> DieRecorder {
     let policy = super::super::validity::PhysicalValidityPolicy::default();
@@ -238,5 +238,59 @@ fn test_rejected_phase3_attempt_remains_host_local_diagnostic_evidence() {
             "historical Phase 3 attempt has a different host-local outcome: reason={reason:?} steps={}",
             attempt.fixed_steps
         ),
+    }
+}
+
+#[test]
+fn test_phase4_mixed_launches_are_seeded_contained_and_nonoverlapping() {
+    for (count, tray) in [
+        (
+            10,
+            PhysicalTray {
+                width: 10.0,
+                depth: 8.0,
+                wall_height: 1.0,
+            },
+        ),
+        (
+            20,
+            PhysicalTray {
+                width: 14.0,
+                depth: 12.0,
+                wall_height: 1.0,
+            },
+        ),
+        (
+            50,
+            PhysicalTray {
+                width: 18.0,
+                depth: 14.0,
+                wall_height: 1.0,
+            },
+        ),
+    ] {
+        let kinds = std::iter::repeat_n(DieKind::D20, count / 5)
+            .chain(std::iter::repeat_n(DieKind::D6, count - count / 5))
+            .collect::<Vec<_>>();
+        let mut first_rng = PhysicalRng::new(0xA11C_E55E);
+        let first = mixed_handful_launches(&kinds, tray, &mut first_rng);
+        let mut second_rng = PhysicalRng::new(0xA11C_E55E);
+        let second = mixed_handful_launches(&kinds, tray, &mut second_rng);
+        assert_eq!(first, second);
+        for (index, launch) in first.iter().enumerate() {
+            let position = Vec3::from_array(launch.world_position);
+            assert!(is_contained(kinds[index], position, tray));
+            assert!(Quat::from_array(launch.unit_orientation).is_finite());
+            assert!(Vec3::from_array(launch.linear_velocity).is_finite());
+            assert!(Vec3::from_array(launch.angular_velocity).is_finite());
+            for prior in 0..index {
+                let prior_position = Vec3::from_array(first[prior].world_position);
+                assert!(
+                    position.distance(prior_position)
+                        > kinds[index].circumradius() + kinds[prior].circumradius(),
+                    "bounding spheres overlap for count {count}, ordinals {prior}/{index}"
+                );
+            }
+        }
     }
 }

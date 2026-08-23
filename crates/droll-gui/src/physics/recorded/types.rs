@@ -10,7 +10,7 @@ pub const MAX_TOTAL_ATTEMPTS: u8 = 3;
 pub const FIXED_STEP: Duration = Duration::from_nanos(16_666_667);
 
 /// Physical shape requested from the hidden runner.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum DieKind {
     D6,
     D20,
@@ -22,6 +22,14 @@ impl DieKind {
         match self {
             Self::D6 => 0.866_025_4,
             Self::D20 => 0.629_204_3,
+        }
+    }
+
+    #[must_use]
+    pub const fn face_count(self) -> u8 {
+        match self {
+            Self::D6 => 6,
+            Self::D20 => 20,
         }
     }
 }
@@ -67,6 +75,12 @@ impl PhysicalBatchRequest {
     #[must_use]
     pub fn with_validity_policy(mut self, validity: PhysicalValidityPolicy) -> Self {
         self.validity = validity;
+        self
+    }
+
+    #[must_use]
+    pub fn with_tray(mut self, tray: PhysicalTray) -> Self {
+        self.tray = tray;
         self
     }
 
@@ -143,6 +157,7 @@ pub struct DiceContactSample {
 pub struct BatchContactDiagnostics {
     pub dice_contact_samples: Vec<DiceContactSample>,
     pub dice_contact_interactions: u32,
+    pub max_simultaneous_dice_pairs: u16,
     pub strongest_dice_contact: Option<DiceContactSample>,
 }
 
@@ -210,6 +225,14 @@ pub struct AttemptDiagnostic {
     pub fixed_steps: u32,
     pub simulated_duration: Duration,
     pub wall_clock_duration: Duration,
+    pub world_construction_duration: Duration,
+    pub trajectory_sample_count: usize,
+    pub raw_trajectory_payload_bytes: usize,
+    pub trajectory_capacity_bytes: usize,
+    pub record_container_bytes: usize,
+    pub dice_contact_sample_count: usize,
+    pub dice_contact_interactions: u32,
+    pub max_simultaneous_dice_pairs: u16,
     pub outcome: AttemptOutcome,
 }
 
@@ -264,6 +287,7 @@ impl CalibrationMetrics {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecordedBatch {
     pub fixed_step: Duration,
+    pub tray: PhysicalTray,
     pub attempts: Vec<AttemptDiagnostic>,
     pub dice: Vec<RecordedDie>,
     pub contacts: BatchContactDiagnostics,

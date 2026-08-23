@@ -85,6 +85,43 @@ pub struct SemanticPresentationMap {
 }
 
 impl SemanticPresentationMap {
+    /// Maps a heterogeneous tuple over one already-complete immutable batch.
+    pub fn for_mixed_tuple(
+        record: &RecordedBatch,
+        requested_faces: &[u8],
+    ) -> Result<Self, PresentationMapError> {
+        if record.dice.len() != requested_faces.len() {
+            return Err(PresentationMapError::MismatchedDieCount);
+        }
+        let accepted_physical_seed = accepted_physical_seed(record)?;
+        let mut d6 = Vec::new();
+        let mut d20 = Vec::new();
+        for (die, requested_face) in record.dice.iter().zip(requested_faces) {
+            match die.kind {
+                DieKind::D6 => d6.push(map_d6_presentation(
+                    die.natural_terminal_face,
+                    *requested_face,
+                    die.ordinal,
+                    accepted_physical_seed,
+                )?),
+                DieKind::D20 => d20.push(map_d20_presentation(
+                    die.natural_terminal_face,
+                    *requested_face,
+                    die.ordinal,
+                    accepted_physical_seed,
+                )?),
+            }
+        }
+        if d6.is_empty() || d20.is_empty() {
+            return Err(PresentationMapError::ExpectedMixedDice);
+        }
+        Ok(Self {
+            natural_record_identity: natural_record_identity(record),
+            d6,
+            d20,
+        })
+    }
+
     /// Maps a complete d6 tuple over one already-complete immutable batch.
     pub fn for_d6_tuple(
         record: &RecordedBatch,
@@ -267,6 +304,9 @@ fn accepted_physical_seed(record: &RecordedBatch) -> Result<u64, PresentationMap
 pub fn natural_record_identity(record: &RecordedBatch) -> u64 {
     let mut hash = Fnv64::new();
     hash.duration(record.fixed_step);
+    hash.f32(record.tray.width);
+    hash.f32(record.tray.depth);
+    hash.f32(record.tray.wall_height);
     for attempt in &record.attempts {
         hash.u8(attempt.attempt);
         hash.u64(attempt.physical_seed);
@@ -328,6 +368,7 @@ fn hash_batch_contacts(hash: &mut Fnv64, record: &RecordedBatch) {
         hash.f32(sample.approach_speed);
     }
     hash.u32(record.contacts.dice_contact_interactions);
+    hash.u16(record.contacts.max_simultaneous_dice_pairs);
 }
 
 fn hash_calibration(hash: &mut Fnv64, record: &RecordedBatch) {
@@ -394,6 +435,7 @@ pub enum PresentationMapError {
     ExpectedSingleDie,
     MismatchedDieCount,
     ExpectedD6,
+    ExpectedMixedDice,
     ExpectedD20,
     MissingAcceptedAttempt,
     InvalidRequestedFace(u8),

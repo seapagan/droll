@@ -2,11 +2,14 @@ use std::{collections::BTreeSet, mem::size_of};
 
 use bevy::prelude::{Quat, Vec3};
 use droll_gui::physics::{
-    AttemptOutcome, DieKind, InvalidityReason, PhysicalBatchRequest, PhysicalValidityPolicy,
-    TrajectorySample, natural_record_identity, prepare_recorded_batch,
+    AttemptOutcome, DieKind, InvalidityReason, PhysicalBatchRequest, PhysicalTray,
+    PhysicalValidityPolicy, TrajectorySample, natural_record_identity, prepare_recorded_batch,
 };
 
 const PHASE3_4D6_SEED: u64 = 0x4D6A_1E00_0000_0003;
+const PHASE4_MIXED10_SEED: u64 = 0x2D20_8D6A_0000_0004;
+const PHASE4_MIXED20_SEED: u64 = 0x4D20_16D6_0000_0004;
+const PHASE4_MIXED50_SEED: u64 = 0xAD20_28D6_0000_0004;
 
 #[test]
 fn test_phase_0_validity_policy_is_preregistered() {
@@ -255,6 +258,172 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
     report_phase3_checkpoint(&record, closest_spawn_distance);
 }
 
+#[test]
+fn test_phase4_mixed10_is_nonoverlapping_valid_and_genuinely_mixed() {
+    let request = PhysicalBatchRequest::new(phase4_composition(10), PHASE4_MIXED10_SEED)
+        .with_tray(phase4_diagnostic_tray(10));
+    let record = prepare_recorded_batch(&request).expect("target-blind 2d20 + 8d6 record");
+    assert_valid_batch(&record, 10);
+    assert_nonoverlapping_initial_states(&record);
+    assert_contact_samples_are_ordered(&record);
+    let kinds = meaningful_pair_kinds(&record);
+    assert!(kinds.contains(&(DieKind::D6, DieKind::D6)));
+    assert!(kinds.contains(&(DieKind::D6, DieKind::D20)));
+    assert!(record.contacts.max_simultaneous_dice_pairs >= 2);
+    report_phase4_checkpoint("mixed10", PHASE4_MIXED10_SEED, &record);
+}
+
+#[test]
+fn test_phase4_mixed20_is_bounded_valid_and_interacting() {
+    let request = PhysicalBatchRequest::new(phase4_composition(20), PHASE4_MIXED20_SEED)
+        .with_tray(phase4_diagnostic_tray(20));
+    let record =
+        prepare_recorded_batch(&request).expect("target-blind 4d20 + 16d6 normal diagnostic");
+    assert_valid_batch(&record, 20);
+    assert_nonoverlapping_initial_states(&record);
+    assert!(meaningful_pair_kinds(&record).contains(&(DieKind::D6, DieKind::D20)));
+    report_phase4_checkpoint("mixed20", PHASE4_MIXED20_SEED, &record);
+}
+
+#[test]
+fn test_phase4_mixed50_diagnostic_is_bounded() {
+    let request = PhysicalBatchRequest::new(phase4_composition(50), PHASE4_MIXED50_SEED)
+        .with_tray(phase4_diagnostic_tray(50));
+    match prepare_recorded_batch(&request) {
+        Ok(record) => {
+            assert_valid_batch(&record, 50);
+            assert_nonoverlapping_initial_states(&record);
+            report_phase4_checkpoint("mixed50", PHASE4_MIXED50_SEED, &record);
+        }
+        Err(failure) => {
+            assert_eq!(failure.attempts.len(), 3);
+            assert!(failure.attempts.iter().all(|attempt| {
+                attempt.die_count == 50 && matches!(attempt.outcome, AttemptOutcome::Invalid(_))
+            }));
+            eprintln!("phase4-mixed50 bounded_failure={:?}", failure.attempts);
+        }
+    }
+}
+
+fn phase4_composition(count: usize) -> Vec<DieKind> {
+    let d20_count = count / 5;
+    std::iter::repeat_n(DieKind::D20, d20_count)
+        .chain(std::iter::repeat_n(DieKind::D6, count - d20_count))
+        .collect()
+}
+
+fn phase4_diagnostic_tray(count: usize) -> PhysicalTray {
+    if count <= 10 {
+        PhysicalTray {
+            width: 10.0,
+            depth: 8.0,
+            wall_height: 1.0,
+        }
+    } else if count <= 20 {
+        PhysicalTray {
+            width: 14.0,
+            depth: 12.0,
+            wall_height: 1.0,
+        }
+    } else {
+        PhysicalTray {
+            width: 18.0,
+            depth: 14.0,
+            wall_height: 1.0,
+        }
+    }
+}
+
+fn assert_valid_batch(record: &droll_gui::physics::RecordedBatch, count: usize) {
+    assert!(!record.attempts.is_empty() && record.attempts.len() <= 3);
+    assert_eq!(record.dice.len(), count);
+    assert_eq!(
+        record.attempts.last().unwrap().outcome,
+        AttemptOutcome::Valid
+    );
+    assert!(
+        record
+            .attempts
+            .iter()
+            .all(|attempt| attempt.die_count == count)
+    );
+    assert_eq!(
+        record
+            .dice
+            .iter()
+            .map(|die| die.ordinal)
+            .collect::<Vec<_>>(),
+        (0..u16::try_from(count).unwrap()).collect::<Vec<_>>()
+    );
+    assert!(record.dice.iter().all(|die| {
+        (1..=die.kind.face_count()).contains(&die.natural_terminal_face)
+            && die.terminal.stable_steps >= 36
+    }));
+}
+
+fn meaningful_pair_kinds(
+    record: &droll_gui::physics::RecordedBatch,
+) -> BTreeSet<(DieKind, DieKind)> {
+    meaningful_contact_pairs(record)
+        .into_iter()
+        .map(|(first, second)| {
+            let first_kind = record.dice[usize::from(first)].kind;
+            let second_kind = record.dice[usize::from(second)].kind;
+            if first_kind == DieKind::D20 && second_kind == DieKind::D6 {
+                (second_kind, first_kind)
+            } else {
+                (first_kind, second_kind)
+            }
+        })
+        .collect()
+}
+
+fn all_pair_kinds(record: &droll_gui::physics::RecordedBatch) -> BTreeSet<(DieKind, DieKind)> {
+    record
+        .contacts
+        .dice_contact_samples
+        .iter()
+        .map(|sample| {
+            let mut kinds = [
+                record.dice[usize::from(sample.first_ordinal)].kind,
+                record.dice[usize::from(sample.second_ordinal)].kind,
+            ];
+            kinds.sort_unstable();
+            (kinds[0], kinds[1])
+        })
+        .collect()
+}
+
+fn report_phase4_checkpoint(
+    name: &str,
+    base_seed: u64,
+    record: &droll_gui::physics::RecordedBatch,
+) {
+    eprintln!(
+        "phase4-{name} id={:016x} base={base_seed:#018x} attempts={:?} faces={:?} duration={:?} steps={} samples={} raw_bytes={} capacity_bytes={} container_bytes={} wall={:?} interactions={} contact_samples={} max_pairs={} pair_kinds={:?} all_pair_kinds={:?} strongest={:?}",
+        natural_record_identity(record),
+        record.attempts,
+        record
+            .dice
+            .iter()
+            .map(|die| die.natural_terminal_face)
+            .collect::<Vec<_>>(),
+        record.calibration.simulated_duration,
+        record.calibration.fixed_steps,
+        record.calibration.trajectory_sample_count,
+        record.calibration.raw_trajectory_payload_bytes,
+        record.calibration.trajectory_capacity_bytes,
+        record.calibration.record_container_bytes,
+        record.calibration.wall_clock_duration,
+        record.contacts.dice_contact_interactions,
+        record.contacts.dice_contact_samples.len(),
+        record.contacts.max_simultaneous_dice_pairs,
+        meaningful_pair_kinds(record),
+        all_pair_kinds(record),
+        record.contacts.strongest_dice_contact,
+    );
+}
+
 fn assert_phase3_attempts_are_complete_and_locally_valid(
     record: &droll_gui::physics::RecordedBatch,
 ) {
@@ -326,7 +495,6 @@ fn meaningful_contact_pairs(record: &droll_gui::physics::RecordedBatch) -> BTree
 }
 
 fn assert_nonoverlapping_initial_states(record: &droll_gui::physics::RecordedBatch) -> f32 {
-    let minimum_separation = 2.0 * DieKind::D6.circumradius();
     let mut closest = f32::INFINITY;
     for first in 0..record.dice.len() {
         for second in (first + 1)..record.dice.len() {
@@ -334,6 +502,8 @@ fn assert_nonoverlapping_initial_states(record: &droll_gui::physics::RecordedBat
             let second_position = Vec3::from_array(record.dice[second].initial.world_position);
             let distance = first_position.distance(second_position);
             closest = closest.min(distance);
+            let minimum_separation =
+                record.dice[first].kind.circumradius() + record.dice[second].kind.circumradius();
             assert!(
                 distance > minimum_separation,
                 "initial bounding spheres overlap for ordinals {first}/{second}"
@@ -346,7 +516,7 @@ fn assert_nonoverlapping_initial_states(record: &droll_gui::physics::RecordedBat
 fn assert_contact_samples_are_ordered(record: &droll_gui::physics::RecordedBatch) {
     for sample in &record.contacts.dice_contact_samples {
         assert!(sample.first_ordinal < sample.second_ordinal);
-        assert!(sample.second_ordinal < 4);
+        assert!(usize::from(sample.second_ordinal) < record.dice.len());
         assert!(sample.fixed_step <= record.calibration.fixed_steps);
         assert!(Vec3::from_array(sample.world_point).is_finite());
         assert!((Vec3::from_array(sample.world_normal).length() - 1.0).abs() < 1.0e-4);

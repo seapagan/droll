@@ -105,6 +105,7 @@ pub fn prepare_recorded_batch(
                 );
                 return Ok(RecordedBatch {
                     fixed_step: FIXED_STEP,
+                    tray: request.tray(),
                     attempts: diagnostics,
                     dice: accepted.dice,
                     contacts: accepted.contacts,
@@ -205,7 +206,7 @@ fn build_hidden_world(request: &PhysicalBatchRequest, seed: u64) -> HiddenWorld 
     let tray = request.tray();
     let floor = spawn_floor(&mut app, tray);
     let boundaries = spawn_boundaries(&mut app, tray);
-    let (dice, initial_states) = spawn_dice(&mut app, request.dice(), seed);
+    let (dice, initial_states) = spawn_dice(&mut app, request.dice(), tray, seed);
     let entity_count = app.world().entities().len();
     HiddenWorld {
         app,
@@ -268,21 +269,24 @@ fn spawn_boundaries(app: &mut App, tray: super::types::PhysicalTray) -> Vec<Enti
 fn spawn_dice(
     app: &mut App,
     kinds: &[DieKind],
+    tray: super::types::PhysicalTray,
     seed: u64,
 ) -> (Vec<Entity>, Vec<InitialPhysicalState>) {
     let mut rng = PhysicalRng::new(seed);
     let phase3_4d6 = kinds.len() == 4 && kinds.iter().all(|kind| *kind == DieKind::D6);
-    let launches = kinds
-        .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            if phase3_4d6 {
-                interacting_4d6_launch(index, &mut rng)
-            } else {
-                ordinary_launch(index, kinds.len(), &mut rng)
-            }
-        })
-        .collect::<Vec<_>>();
+    let mixed_large =
+        kinds.len() >= 10 && kinds.contains(&DieKind::D6) && kinds.contains(&DieKind::D20);
+    let launches = if phase3_4d6 {
+        (0..kinds.len())
+            .map(|index| interacting_4d6_launch(index, &mut rng))
+            .collect()
+    } else if mixed_large {
+        mixed_handful_launches(kinds, tray, &mut rng)
+    } else {
+        (0..kinds.len())
+            .map(|index| ordinary_launch(index, kinds.len(), &mut rng))
+            .collect()
+    };
     let entities = kinds
         .iter()
         .copied()
@@ -360,6 +364,171 @@ fn interacting_4d6_launch(index: usize, rng: &mut PhysicalRng) -> InitialPhysica
     initial_state(position, orientation, linear_velocity, angular_velocity)
 }
 
+fn mixed_handful_launches(
+    kinds: &[DieKind],
+    tray: super::types::PhysicalTray,
+    rng: &mut PhysicalRng,
+) -> Vec<InitialPhysicalState> {
+    let mut positions = Vec::with_capacity(kinds.len());
+    for (ordinal, kind) in kinds.iter().copied().enumerate() {
+        positions.push(nonoverlapping_mixed_position(
+            kind, ordinal, kinds, tray, rng, &positions,
+        ));
+    }
+    positions
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, position)| {
+            mixed_launch(kinds[ordinal], ordinal, position, kinds.len(), rng)
+        })
+        .collect()
+}
+
+fn nonoverlapping_mixed_position(
+    kind: DieKind,
+    ordinal: usize,
+    kinds: &[DieKind],
+    tray: super::types::PhysicalTray,
+    rng: &mut PhysicalRng,
+    positions: &[Vec3],
+) -> Vec3 {
+    let radius = kind.circumradius();
+    if kinds.len() > 20 {
+        return layered_diagnostic_position(ordinal, kinds.len(), rng);
+    }
+    let x_limit = tray.width * 0.5 - radius - 0.3;
+    let z_limit = tray.depth * 0.5 - radius - 0.3;
+    let (minimum_y, maximum_y, samples) = if kinds.len() <= 10 {
+        (2.8, 5.8, 256)
+    } else {
+        (1.2, 7.6, 2_048)
+    };
+    let spread = if kinds.len() <= 10 { 0.70 } else { 0.55 };
+    for _ in 0..samples {
+        let candidate = Vec3::new(
+            rng.range(-x_limit * spread, x_limit * spread),
+            rng.range(minimum_y, maximum_y),
+            rng.range(-z_limit * spread, z_limit * spread),
+        );
+        if position_clears_batch(candidate, radius, kinds, positions) {
+            return candidate;
+        }
+    }
+    let previous_height = positions.last().map_or(2.8, |position| position.y);
+    let previous_radius = ordinal
+        .checked_sub(1)
+        .map_or(0.0, |index| kinds[index].circumradius());
+    Vec3::new(0.0, previous_height + previous_radius + radius + 0.08, 0.0)
+}
+
+fn layered_diagnostic_position(ordinal: usize, count: usize, rng: &mut PhysicalRng) -> Vec3 {
+    if count <= 20 {
+        return layered_normal_position(ordinal, rng);
+    }
+    layered_stress_position(ordinal, rng)
+}
+
+fn layered_normal_position(ordinal: usize, rng: &mut PhysicalRng) -> Vec3 {
+    const PER_LAYER: usize = 4;
+    let layer = ordinal / PER_LAYER;
+    let within_layer = ordinal % PER_LAYER;
+    let angle = within_layer as f32 * std::f32::consts::FRAC_PI_2
+        + layer as f32 * 0.71
+        + rng.range(-0.002, 0.002);
+    Vec3::new(
+        angle.cos() * 1.30,
+        1.00 + layer as f32 * 1.82,
+        angle.sin() * 1.30,
+    )
+}
+
+fn layered_stress_position(ordinal: usize, rng: &mut PhysicalRng) -> Vec3 {
+    const SPACING: f32 = 1.82;
+    let (columns, rows) = (4, 3);
+    let per_layer = columns * rows;
+    let layer = ordinal / per_layer;
+    let within_layer = ordinal % per_layer;
+    let row = within_layer / columns;
+    let column = within_layer % columns;
+    Vec3::new(
+        (column as f32 - (columns - 1) as f32 * 0.5) * SPACING + rng.range(-0.005, 0.005),
+        1.00 + layer as f32 * SPACING + rng.range(-0.005, 0.005),
+        (row as f32 - (rows - 1) as f32 * 0.5) * SPACING + rng.range(-0.005, 0.005),
+    )
+}
+
+fn position_clears_batch(
+    candidate: Vec3,
+    radius: f32,
+    kinds: &[DieKind],
+    positions: &[Vec3],
+) -> bool {
+    positions.iter().enumerate().all(|(index, position)| {
+        candidate.distance(*position) > radius + kinds[index].circumradius() + 0.08
+    })
+}
+
+fn mixed_launch(
+    kind: DieKind,
+    ordinal: usize,
+    position: Vec3,
+    count: usize,
+    rng: &mut PhysicalRng,
+) -> InitialPhysicalState {
+    let orientation = if count <= 10 {
+        random_orientation(rng)
+    } else {
+        face_biased_orientation(kind, rng)
+    };
+    let inward = -Vec3::new(position.x, 0.0, position.z)
+        .try_normalize()
+        .unwrap_or(Vec3::X);
+    let convergence = if count <= 10 { 1.10 } else { 0.15 };
+    let tangent = Vec3::new(-inward.z, 0.0, inward.x);
+    let vertical = if count <= 10 {
+        rng.range(-0.20, 0.15)
+    } else {
+        rng.range(-0.08, 0.02)
+    };
+    let tangent_speed = if count <= 10 { 0.30 } else { 0.08 };
+    let linear_velocity = inward * rng.range(convergence * 0.8, convergence * 1.2)
+        + tangent * rng.range(-tangent_speed, tangent_speed)
+        + Vec3::Y * vertical;
+    let spin = if count <= 10 {
+        5.0 + (ordinal % 3) as f32 * 0.5
+    } else {
+        0.50 + (ordinal % 3) as f32 * 0.10
+    };
+    let angular_velocity = Vec3::new(
+        rng.range(-spin, spin),
+        rng.range(-spin, spin),
+        rng.range(-spin, spin),
+    );
+    initial_state(position, orientation, linear_velocity, angular_velocity)
+}
+
+fn random_orientation(rng: &mut PhysicalRng) -> Quat {
+    let axis = Vec3::new(rng.signed(), rng.signed(), rng.signed())
+        .try_normalize()
+        .unwrap_or(Vec3::Y);
+    Quat::from_axis_angle(axis, rng.range(0.2, 5.8))
+}
+
+fn face_biased_orientation(kind: DieKind, rng: &mut PhysicalRng) -> Quat {
+    let face = 1 + u8::try_from(rng.next() % u64::from(kind.face_count())).expect("face range");
+    let phase = rng.range(0.0, std::f32::consts::TAU);
+    match kind {
+        DieKind::D6 => d6_geometry()
+            .face(face)
+            .expect("d6 face")
+            .target_rotation(phase),
+        DieKind::D20 => d20_geometry()
+            .face(face)
+            .expect("d20 face")
+            .target_rotation(phase),
+    }
+}
+
 fn initial_state(
     position: Vec3,
     orientation: Quat,
@@ -430,6 +599,10 @@ fn record_batch_contacts(
     }
     recorder.diagnostics.dice_contact_interactions +=
         u32::try_from(current_pairs.difference(&recorder.active_pairs).count()).unwrap_or(u32::MAX);
+    recorder.diagnostics.max_simultaneous_dice_pairs = recorder
+        .diagnostics
+        .max_simultaneous_dice_pairs
+        .max(u16::try_from(current_pairs.len()).unwrap_or(u16::MAX));
     recorder.active_pairs = current_pairs;
 }
 
@@ -891,6 +1064,16 @@ fn attempt_diagnostic(
     result: &AcceptedAttempt,
     outcome: AttemptOutcome,
 ) -> AttemptDiagnostic {
+    let sample_count = result
+        .dice
+        .iter()
+        .map(|die| die.samples.len())
+        .sum::<usize>();
+    let sample_capacity = result
+        .dice
+        .iter()
+        .map(|die| die.samples.capacity())
+        .sum::<usize>();
     AttemptDiagnostic {
         attempt,
         physical_seed: seed,
@@ -898,6 +1081,16 @@ fn attempt_diagnostic(
         fixed_steps: result.fixed_steps,
         simulated_duration: FIXED_STEP * result.fixed_steps,
         wall_clock_duration: result.wall_duration,
+        world_construction_duration: result.construction_duration,
+        trajectory_sample_count: sample_count,
+        raw_trajectory_payload_bytes: sample_count * std::mem::size_of::<TrajectorySample>(),
+        trajectory_capacity_bytes: sample_capacity * std::mem::size_of::<TrajectorySample>(),
+        record_container_bytes: std::mem::size_of::<RecordedBatch>()
+            + result.dice.capacity() * std::mem::size_of::<RecordedDie>()
+            + sample_capacity * std::mem::size_of::<TrajectorySample>(),
+        dice_contact_sample_count: result.contacts.dice_contact_samples.len(),
+        dice_contact_interactions: result.contacts.dice_contact_interactions,
+        max_simultaneous_dice_pairs: result.contacts.max_simultaneous_dice_pairs,
         outcome,
     }
 }
@@ -911,6 +1104,14 @@ fn single_failure(request: &PhysicalBatchRequest, reason: InvalidityReason) -> P
             fixed_steps: 0,
             simulated_duration: Duration::ZERO,
             wall_clock_duration: Duration::ZERO,
+            world_construction_duration: Duration::ZERO,
+            trajectory_sample_count: 0,
+            raw_trajectory_payload_bytes: 0,
+            trajectory_capacity_bytes: 0,
+            record_container_bytes: 0,
+            dice_contact_sample_count: 0,
+            dice_contact_interactions: 0,
+            max_simultaneous_dice_pairs: 0,
             outcome: AttemptOutcome::Invalid(reason),
         }],
     }

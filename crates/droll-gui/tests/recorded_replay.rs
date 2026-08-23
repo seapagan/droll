@@ -6,9 +6,9 @@ use droll_gui::{
     dice::{d6_geometry, d6_solid_symmetries, d20_geometry, d20_solid_symmetries},
     physics::{
         D20PresentationMapping, DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual,
-        PhysicalBatchRequest, PlaybackRoot, RecordedPlaybackClock, RecordedPlaybackPlugin,
-        RecordedTrajectoryPlayback, SemanticPresentationMap, TrajectorySample,
-        compose_visible_orientation, map_d6_presentation, map_d20_presentation,
+        PhysicalBatchRequest, PhysicalTray, PlaybackRoot, RecordedPlaybackClock,
+        RecordedPlaybackPlugin, RecordedTrajectoryPlayback, SemanticPresentationMap,
+        TrajectorySample, compose_visible_orientation, map_d6_presentation, map_d20_presentation,
         natural_record_identity, prepare_recorded_batch, sample_recorded_transform,
     },
 };
@@ -18,6 +18,13 @@ const PHYSICAL_SEED: u64 = 0xD65A_1E00_0000_0001;
 const D20_PHYSICAL_SEED: u64 = 0xD20A_1E00_0000_0001;
 const PHASE3_4D6_SEED: u64 = 0x4D6A_1E00_0000_0003;
 const PHASE3_TUPLES: [[u8; 4]; 4] = [[6, 6, 6, 6], [1, 2, 3, 4], [6, 2, 5, 3], [2, 5, 1, 6]];
+const PHASE4_MIXED10_SEED: u64 = 0x2D20_8D6A_0000_0004;
+const PHASE4_TUPLES: [[u8; 10]; 4] = [
+    [20, 1, 6, 1, 6, 1, 6, 1, 6, 1],
+    [3, 17, 1, 2, 3, 4, 5, 6, 2, 5],
+    [19, 20, 6, 6, 6, 6, 6, 6, 6, 6],
+    [8, 13, 2, 5, 1, 6, 3, 4, 2, 5],
+];
 
 #[test]
 fn test_all_36_d6_pairs_use_proper_group_and_target_independent_phase() {
@@ -235,6 +242,196 @@ fn test_phase3_tuples_change_only_four_presentation_mappings() {
     assert_eq!(record.calibration, frozen.calibration);
     assert_eq!(tuple_mappings[0][0], tuple_mappings[2][0]);
     assert_eq!(tuple_mappings[1][1], tuple_mappings[2][1]);
+}
+
+#[test]
+fn test_phase4_mixed_tuples_reuse_one_immutable_physical_contact_record() {
+    let record = prepare_recorded_batch(&phase4_mixed10_request())
+        .expect("one target-blind interacting mixed10 record");
+    let frozen = record.clone();
+    let identity = natural_record_identity(&record);
+    let accepted_seed = record.attempts.last().unwrap().physical_seed;
+    let strongest_mixed = record
+        .contacts
+        .dice_contact_samples
+        .iter()
+        .filter(|sample| {
+            record.dice[usize::from(sample.first_ordinal)].kind
+                != record.dice[usize::from(sample.second_ordinal)].kind
+        })
+        .max_by(|left, right| left.normal_impulse.total_cmp(&right.normal_impulse))
+        .expect("accepted record has a d6/d20 contact");
+    let contact_elapsed = record.fixed_step * strongest_mixed.fixed_step.saturating_sub(1);
+    let mut stable_phases = None;
+    let mut visible_tuples = Vec::new();
+    for requested in PHASE4_TUPLES {
+        let presentation = SemanticPresentationMap::for_mixed_tuple(&record, &requested)
+            .expect("complete mixed proper-symmetry map");
+        assert_eq!(presentation.natural_record_identity, identity);
+        assert_eq!(presentation.d20.len(), 2);
+        assert_eq!(presentation.d6.len(), 8);
+        let phases = mixed_phase_ids(&presentation);
+        assert_eq!(stable_phases.get_or_insert_with(|| phases.clone()), &phases);
+        let visible = record
+            .dice
+            .iter()
+            .map(|die| {
+                assert_mixed_mapping(
+                    die,
+                    &presentation,
+                    requested[usize::from(die.ordinal)],
+                    accepted_seed,
+                    record.fixed_step,
+                    contact_elapsed,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(visible, requested);
+        visible_tuples.push(visible);
+        assert_eq!(record, frozen, "mixed mapping mutated physical record");
+        assert_eq!(natural_record_identity(&record), identity);
+    }
+    assert_eq!(record.attempts, frozen.attempts);
+    assert_eq!(record.dice, frozen.dice);
+    assert_eq!(record.contacts, frozen.contacts);
+    assert_eq!(record.calibration, frozen.calibration);
+    eprintln!(
+        "phase4-mixed-map id={identity:016x} accepted={accepted_seed:#018x} tuples={PHASE4_TUPLES:?} visible={visible_tuples:?} strongest_mixed={strongest_mixed:?}"
+    );
+}
+
+#[test]
+fn test_phase4_mixed20_mapping_is_correct_and_transform_only() {
+    let request = PhysicalBatchRequest::new(
+        std::iter::repeat_n(DieKind::D20, 4)
+            .chain(std::iter::repeat_n(DieKind::D6, 16))
+            .collect(),
+        0x4D20_16D6_0000_0004,
+    )
+    .with_tray(PhysicalTray {
+        width: 14.0,
+        depth: 12.0,
+        wall_height: 1.0,
+    });
+    let record = prepare_recorded_batch(&request).expect("bounded mixed20 record");
+    let frozen = record.clone();
+    let requested = record
+        .dice
+        .iter()
+        .map(|die| 1 + (die.ordinal as u8 % die.kind.face_count()))
+        .collect::<Vec<_>>();
+    let presentation = SemanticPresentationMap::for_mixed_tuple(&record, &requested).unwrap();
+    let accepted_seed = record.attempts.last().unwrap().physical_seed;
+    let contact_elapsed = record.fixed_step
+        * record
+            .contacts
+            .strongest_dice_contact
+            .unwrap()
+            .fixed_step
+            .saturating_sub(1);
+    let visible = record
+        .dice
+        .iter()
+        .map(|die| {
+            assert_mixed_mapping(
+                die,
+                &presentation,
+                requested[usize::from(die.ordinal)],
+                accepted_seed,
+                record.fixed_step,
+                contact_elapsed,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(visible, requested);
+    assert_eq!(record, frozen);
+}
+
+fn phase4_mixed10_request() -> PhysicalBatchRequest {
+    PhysicalBatchRequest::new(
+        std::iter::repeat_n(DieKind::D20, 2)
+            .chain(std::iter::repeat_n(DieKind::D6, 8))
+            .collect(),
+        PHASE4_MIXED10_SEED,
+    )
+    .with_tray(PhysicalTray {
+        width: 10.0,
+        depth: 8.0,
+        wall_height: 1.0,
+    })
+}
+
+fn mixed_phase_ids(presentation: &SemanticPresentationMap) -> Vec<(u16, u64)> {
+    let mut phases = presentation
+        .d6
+        .iter()
+        .map(|mapping| (mapping.ordinal, mapping.phase.identifier))
+        .chain(
+            presentation
+                .d20
+                .iter()
+                .map(|mapping| (mapping.ordinal, mapping.phase.identifier)),
+        )
+        .collect::<Vec<_>>();
+    phases.sort_unstable();
+    phases
+}
+
+fn assert_mixed_mapping(
+    die: &droll_gui::physics::RecordedDie,
+    presentation: &SemanticPresentationMap,
+    requested: u8,
+    accepted_seed: u64,
+    fixed_step: Duration,
+    contact_elapsed: Duration,
+) -> u8 {
+    let (symmetry, natural, mapped, mapping_seed) = match die.kind {
+        DieKind::D6 => {
+            let mapping = presentation
+                .d6
+                .iter()
+                .find(|map| map.ordinal == die.ordinal)
+                .unwrap();
+            (
+                mapping.symmetry,
+                mapping.natural_face,
+                mapping.requested_face,
+                mapping.accepted_physical_seed,
+            )
+        }
+        DieKind::D20 => {
+            let mapping = presentation
+                .d20
+                .iter()
+                .find(|map| map.ordinal == die.ordinal)
+                .unwrap();
+            (
+                mapping.symmetry,
+                mapping.natural_face,
+                mapping.requested_face,
+                mapping.accepted_physical_seed,
+            )
+        }
+    };
+    assert_eq!(natural, die.natural_terminal_face);
+    assert_eq!(mapped, requested);
+    assert_eq!(mapping_seed, accepted_seed);
+    let contact = sample_recorded_transform(&die.samples, fixed_step, contact_elapsed).unwrap();
+    let final_orientation = Quat::from_array(die.samples.last().unwrap().unit_orientation);
+    match die.kind {
+        DieKind::D6 => {
+            assert_occupied_shape_unchanged(contact.recorded_orientation, symmetry);
+            d6_geometry()
+                .upward_face(final_orientation * symmetry)
+                .value
+        }
+        DieKind::D20 => {
+            assert_d20_shape_unchanged(contact.recorded_orientation, symmetry);
+            d20_geometry()
+                .upward_face(final_orientation * symmetry)
+                .value
+        }
+    }
 }
 
 #[test]
