@@ -188,6 +188,39 @@ fn test_d20_two_digit_labels_are_visually_centred_and_contained() {
 }
 
 #[test]
+fn test_d20_narrow_digit_pair_spacing_stays_readable() {
+    let geometry = d20_geometry();
+    for label in d20_labels()
+        .into_iter()
+        .filter(|label| (10..=19).contains(&label.value))
+    {
+        let face = geometry.face(label.value).expect("label face exists");
+        let bounds = |vertices: &[Vec3]| {
+            vertices
+                .iter()
+                .map(|vertex| (*vertex - face.center).dot(face.label_right))
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |bounds, x| {
+                    (bounds.0.min(x), bounds.1.max(x))
+                })
+        };
+        let (left_digit, right_digit) = label.vertices.split_at(8);
+        let (_, left_right) = bounds(left_digit);
+        let (right_left, _) = bounds(right_digit);
+        let gap = right_left - left_right;
+        assert!(gap > 0.0, "value={} gap={gap}", label.value);
+        if label.value == 11 {
+            assert!((0.07..=0.08).contains(&gap), "value=11 gap={gap}");
+        } else {
+            assert!(
+                (0.015..=0.025).contains(&gap),
+                "value={} gap={gap}",
+                label.value
+            );
+        }
+    }
+}
+
+#[test]
 fn test_d20_six_and_nine_keep_centred_orientation_marks() {
     let geometry = d20_geometry();
     for label in d20_labels() {

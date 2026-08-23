@@ -131,11 +131,28 @@ fn append_digits(label: &mut D20Label, face: D20Face, digits: &[u8]) {
         .map(|digit| digit_visual_bounds(*digit))
         .collect::<Vec<_>>();
     let total_width = bounds.iter().map(|(left, right)| right - left).sum::<f32>()
-        + (digits.len() - 1) as f32 * DIGIT_GAP;
+        + bounds
+            .windows(2)
+            .map(|pair| digit_gap(pair[0], pair[1]))
+            .sum::<f32>();
     let mut cursor = -total_width / 2.0;
-    for (digit, (left, right)) in digits.iter().zip(bounds) {
+    for (index, (digit, &(left, right))) in digits.iter().zip(&bounds).enumerate() {
         append_digit(label, face, *digit, cursor - left);
-        cursor += right - left + DIGIT_GAP;
+        cursor += right - left;
+        if let Some(next) = bounds.get(index + 1) {
+            cursor += digit_gap((left, right), *next);
+        }
+    }
+}
+
+fn digit_gap(left: (f32, f32), right: (f32, f32)) -> f32 {
+    let left_width = left.1 - left.0;
+    let right_width = right.1 - right.0;
+    if left_width < DIGIT_WIDTH / 2.0 && right_width < DIGIT_WIDTH / 2.0 {
+        let normal_advance = DIGIT_WIDTH + DIGIT_GAP;
+        (normal_advance - (left_width + right_width) / 2.0).max(DIGIT_GAP)
+    } else {
+        DIGIT_GAP
     }
 }
 
