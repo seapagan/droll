@@ -7,13 +7,14 @@ mod types;
 mod validity;
 
 pub use playback::{
-    FixedD6Presentation, NumberedVisual, PlaybackError, PlaybackRoot, RecordedPlaybackPlugin,
-    RecordedTrajectoryPlayback, SampledPlaybackTransform, compose_visible_orientation,
-    sample_recorded_transform,
+    FixedD6Presentation, FixedD20Presentation, NumberedVisual, PlaybackError, PlaybackRoot,
+    RecordedPlaybackPlugin, RecordedTrajectoryPlayback, SampledPlaybackTransform,
+    compose_visible_orientation, sample_recorded_transform,
 };
 pub use presentation::{
-    D6PresentationMapping, D6PresentationPhase, PresentationMapError, SemanticPresentationMap,
-    map_d6_presentation, natural_record_identity,
+    D6PresentationMapping, D6PresentationPhase, D20PresentationMapping, D20PresentationPhase,
+    PresentationMapError, SemanticPresentationMap, map_d6_presentation, map_d20_presentation,
+    natural_record_identity,
 };
 pub use runner::prepare_recorded_batch;
 pub use types::{

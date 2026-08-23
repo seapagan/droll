@@ -2,7 +2,10 @@ use std::{error::Error, fmt, sync::Arc, time::Duration};
 
 use bevy::prelude::*;
 
-use super::{presentation::D6PresentationMapping, types::TrajectorySample};
+use super::{
+    presentation::{D6PresentationMapping, D20PresentationMapping},
+    types::TrajectorySample,
+};
 
 /// Recorded/interpolated world-body transform owner.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,6 +18,10 @@ pub struct NumberedVisual;
 /// Immutable semantic mapping attached before the first visible frame.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct FixedD6Presentation(pub D6PresentationMapping);
+
+/// Immutable d20 semantic mapping attached before the first visible frame.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct FixedD20Presentation(pub D20PresentationMapping);
 
 /// Transform-only playback state; it has no physics world or collider access.
 #[derive(Component, Clone, Debug)]

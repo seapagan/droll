@@ -3,17 +3,19 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use avian3d::prelude::{Collider, RigidBody};
 use bevy::{app::App, math::Quat, prelude::*};
 use droll_gui::{
-    dice::{d6_geometry, d6_solid_symmetries},
+    dice::{d6_geometry, d6_solid_symmetries, d20_geometry, d20_solid_symmetries},
     physics::{
-        DieKind, FixedD6Presentation, NumberedVisual, PhysicalBatchRequest, PlaybackRoot,
-        RecordedPlaybackPlugin, RecordedTrajectoryPlayback, SemanticPresentationMap,
-        TrajectorySample, compose_visible_orientation, map_d6_presentation,
-        natural_record_identity, prepare_recorded_batch, sample_recorded_transform,
+        D20PresentationMapping, DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual,
+        PhysicalBatchRequest, PlaybackRoot, RecordedPlaybackPlugin, RecordedTrajectoryPlayback,
+        SemanticPresentationMap, TrajectorySample, compose_visible_orientation,
+        map_d6_presentation, map_d20_presentation, natural_record_identity, prepare_recorded_batch,
+        sample_recorded_transform,
     },
 };
 
 const EPSILON: f32 = 1.0e-5;
 const PHYSICAL_SEED: u64 = 0xD65A_1E00_0000_0001;
+const D20_PHYSICAL_SEED: u64 = 0xD20A_1E00_0000_0001;
 
 #[test]
 fn test_all_36_d6_pairs_use_proper_group_and_target_independent_phase() {
@@ -96,6 +98,81 @@ fn test_one_immutable_natural_record_maps_all_six_d6_values() {
 }
 
 #[test]
+fn test_all_400_d20_pairs_use_three_proper_mappings_and_target_blind_phase() {
+    let proper_ids = d20_solid_symmetries()
+        .into_iter()
+        .map(|symmetry| symmetry.id)
+        .collect::<BTreeSet<_>>();
+    for natural in 1..=20 {
+        let mut phases = BTreeSet::new();
+        for requested in 1..=20 {
+            let mapping = map_d20_presentation(natural, requested, 7, D20_PHYSICAL_SEED)
+                .expect("all ordered d20 pairs map");
+            assert!(proper_ids.contains(&mapping.symmetry_id));
+            assert_eq!(mapping.phase.index, (mapping.phase.identifier % 3) as u8);
+            let landed = d20_geometry()
+                .face(natural)
+                .expect("natural d20 face")
+                .target_rotation(0.37);
+            assert_eq!(
+                d20_geometry().upward_face(landed * mapping.symmetry).value,
+                requested
+            );
+            assert_d20_shape_unchanged(landed, mapping.symmetry);
+            phases.insert((mapping.phase.index, mapping.phase.identifier));
+        }
+        assert_eq!(phases.len(), 1, "requested value changed free phase");
+    }
+}
+
+#[test]
+fn test_one_immutable_natural_record_maps_all_twenty_d20_values() {
+    let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+        vec![DieKind::D20],
+        D20_PHYSICAL_SEED,
+    ))
+    .expect("one target-blind d20 record");
+    let frozen = record.clone();
+    let identity = natural_record_identity(&record);
+    let accepted_seed = record
+        .attempts
+        .last()
+        .expect("accepted attempt")
+        .physical_seed;
+    for requested in 1..=20 {
+        let presentation = SemanticPresentationMap::for_single_d20(&record, requested)
+            .expect("d20 presentation map");
+        assert_eq!(presentation.natural_record_identity, identity);
+        assert_d20_mapping_matches_record(presentation.d20[0], &record, requested);
+        assert_eq!(record, frozen, "pure mapping mutated physical record");
+    }
+    assert_eq!(record.dice[0].samples, frozen.dice[0].samples);
+    assert_eq!(record.dice[0].terminal, frozen.dice[0].terminal);
+    assert_eq!(record.attempts, frozen.attempts);
+    assert_eq!(
+        record.dice[0].natural_terminal_face,
+        frozen.dice[0].natural_terminal_face
+    );
+    assert_eq!(
+        accepted_seed,
+        frozen
+            .attempts
+            .last()
+            .expect("accepted attempt")
+            .physical_seed
+    );
+    eprintln!(
+        "phase2-record id={identity:016x} natural_face={} base_seed={D20_PHYSICAL_SEED:#018x} accepted_seed={accepted_seed:#018x} attempts={} steps={} samples={} simulated={:?} wall={:?}",
+        record.dice[0].natural_terminal_face,
+        record.attempts.len(),
+        record.calibration.fixed_steps,
+        record.dice[0].samples.len(),
+        record.calibration.simulated_duration,
+        record.calibration.wall_clock_duration,
+    );
+}
+
+#[test]
 fn test_recorded_sampler_preserves_endpoints_at_render_cadences() {
     let samples = representative_samples();
     let fixed_step = Duration::from_secs_f64(1.0 / 60.0);
@@ -151,6 +228,41 @@ fn test_sampler_uses_shortest_arc_slerp_before_fixed_symmetry() {
 }
 
 #[test]
+fn test_d20_high_angular_speed_slerp_preserves_exact_first_and_final_transforms() {
+    let fixed_step = Duration::from_secs_f64(1.0 / 60.0);
+    let first_rotation = Quat::from_euler(EulerRot::XYZ, 0.3, -0.4, 0.2);
+    let fast_delta =
+        Quat::from_axis_angle(Vec3::new(1.0, 2.0, -1.0).normalize(), 175_f32.to_radians());
+    let final_rotation = first_rotation * fast_delta;
+    let samples = vec![
+        TrajectorySample {
+            fixed_step: 1,
+            world_position: [-0.4, 1.7, 0.2],
+            unit_orientation: first_rotation.to_array(),
+        },
+        TrajectorySample {
+            fixed_step: 2,
+            world_position: [0.5, 0.6, -0.3],
+            unit_orientation: final_rotation.to_array(),
+        },
+    ];
+    assert_sample_exact(
+        sample_recorded_transform(&samples, fixed_step, Duration::ZERO).expect("first sample"),
+        &samples[0],
+    );
+    let midpoint = sample_recorded_transform(&samples, fixed_step, fixed_step / 2)
+        .expect("high-speed midpoint");
+    assert_same_rotation(
+        midpoint.recorded_orientation,
+        first_rotation.slerp(final_rotation, 0.5),
+    );
+    assert_sample_exact(
+        sample_recorded_transform(&samples, fixed_step, fixed_step).expect("final sample"),
+        &samples[1],
+    );
+}
+
+#[test]
 fn test_playback_plugin_has_no_visible_physics_components() {
     let samples: Arc<[TrajectorySample]> = representative_samples().into();
     let mut app = App::new();
@@ -174,6 +286,16 @@ fn test_playback_plugin_has_no_visible_physics_components() {
         ))
         .id();
     app.world_mut().entity_mut(root).add_child(visual);
+    let d20_mapping = map_d20_presentation(1, 20, 0, D20_PHYSICAL_SEED).expect("d20 mapping");
+    let d20_visual = app
+        .world_mut()
+        .spawn((
+            NumberedVisual,
+            FixedD20Presentation(d20_mapping),
+            Transform::from_rotation(d20_mapping.symmetry),
+        ))
+        .id();
+    app.world_mut().entity_mut(root).add_child(d20_visual);
     let fixed_before = *app
         .world()
         .get::<FixedD6Presentation>(visual)
@@ -186,7 +308,7 @@ fn test_playback_plugin_has_no_visible_physics_components() {
     app.update();
     app.update();
 
-    for entity in [root, visual] {
+    for entity in [root, visual, d20_visual] {
         assert!(app.world().get::<RigidBody>(entity).is_none());
         assert!(app.world().get::<Collider>(entity).is_none());
     }
@@ -222,8 +344,10 @@ fn test_semantics_cannot_reach_physical_runner_or_consume_physical_rng() {
     for forbidden in [
         "SemanticPresentationMap",
         "D6PresentationMapping",
+        "D20PresentationMapping",
         "requested_face",
         "FixedD6Presentation",
+        "FixedD20Presentation",
     ] {
         assert!(!runner.contains(forbidden), "runner contains {forbidden}");
     }
@@ -269,6 +393,48 @@ fn assert_visible_transform_contract(
                 mapping.requested_face
             );
         }
+    }
+}
+
+fn assert_d20_mapping_matches_record(
+    mapping: D20PresentationMapping,
+    record: &droll_gui::physics::RecordedBatch,
+    requested: u8,
+) {
+    let die = &record.dice[0];
+    assert_eq!(mapping.natural_face, die.natural_terminal_face);
+    assert_eq!(mapping.requested_face, requested);
+    assert_eq!(
+        mapping.accepted_physical_seed,
+        record
+            .attempts
+            .last()
+            .expect("accepted attempt")
+            .physical_seed
+    );
+    let final_sample = die.samples.last().expect("d20 trajectory samples");
+    let visible = compose_visible_orientation(
+        Quat::from_array(final_sample.unit_orientation),
+        mapping.symmetry,
+        Quat::IDENTITY,
+    );
+    assert_eq!(d20_geometry().upward_face(visible).value, requested);
+    assert_d20_shape_unchanged(
+        Quat::from_array(final_sample.unit_orientation),
+        mapping.symmetry,
+    );
+}
+
+fn assert_d20_shape_unchanged(recorded: Quat, symmetry: Quat) {
+    let vertices = d20_geometry().vertices;
+    let baseline = vertices.map(|vertex| recorded * vertex);
+    let mapped = vertices.map(|vertex| recorded * symmetry * vertex);
+    for vertex in baseline {
+        assert!(
+            mapped
+                .iter()
+                .any(|candidate| candidate.distance(vertex) < 2.0 * EPSILON)
+        );
     }
 }
 
