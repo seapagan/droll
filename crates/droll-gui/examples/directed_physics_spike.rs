@@ -1,11 +1,11 @@
 use std::{env, process::ExitCode, str::FromStr};
 
-use droll_gui::spike::{SpikeMode, SpikeOptions, SpikeScenario, build_spike_app};
+use droll_gui::spike::{SpikeMode, SpikeOptions, SpikeScenario, run_spike};
 
 fn main() -> ExitCode {
     match parse_options(env::args().skip(1).collect()) {
         Ok(options) => {
-            build_spike_app(options).run();
+            run_spike(options);
             ExitCode::SUCCESS
         }
         Err(message) => {

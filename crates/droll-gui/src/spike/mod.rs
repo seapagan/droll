@@ -18,7 +18,8 @@ use crate::physics::{
     directed_d6_components, symmetry_d6_components,
 };
 use recorded_replay::{
-    advance_recorded_replay_cases, setup_recorded_replay, update_recorded_replay_window_status,
+    advance_recorded_replay_cases, prepare_mixed50_diagnostic, report_mixed50_diagnostic,
+    setup_recorded_replay, update_recorded_replay_window_status,
 };
 
 pub use scenario::{
@@ -41,8 +42,57 @@ struct CaseSequence {
     mode: SpikeMode,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SpikeDispatch {
+    Graphical,
+    HeadlessMixed50Diagnostic,
+}
+
+enum SpikeExecution<T> {
+    Graphical(T),
+    HeadlessMixed50Diagnostic(recorded_replay::Mixed50DiagnosticOutcome),
+}
+
+fn spike_dispatch(options: &SpikeOptions) -> SpikeDispatch {
+    if options.mode == SpikeMode::RecordedReplay && options.scenario == SpikeScenario::Mixed50 {
+        SpikeDispatch::HeadlessMixed50Diagnostic
+    } else {
+        SpikeDispatch::Graphical
+    }
+}
+
+fn execute_spike_dispatch<T>(
+    options: SpikeOptions,
+    prepare_headless: impl FnOnce() -> recorded_replay::Mixed50DiagnosticOutcome,
+    build_graphical: impl FnOnce(SpikeOptions) -> T,
+) -> SpikeExecution<T> {
+    match spike_dispatch(&options) {
+        SpikeDispatch::HeadlessMixed50Diagnostic => {
+            SpikeExecution::HeadlessMixed50Diagnostic(prepare_headless())
+        }
+        SpikeDispatch::Graphical => SpikeExecution::Graphical(build_graphical(options)),
+    }
+}
+
+/// Runs the requested Stage 1 spike through its graphical or diagnostic path.
+pub fn run_spike(options: SpikeOptions) {
+    match execute_spike_dispatch(options, prepare_mixed50_diagnostic, build_spike_app) {
+        SpikeExecution::HeadlessMixed50Diagnostic(outcome) => {
+            report_mixed50_diagnostic(&outcome);
+        }
+        SpikeExecution::Graphical(mut app) => {
+            app.run();
+        }
+    }
+}
+
 /// Builds the bounded real-window Stage 1 spike application.
 pub fn build_spike_app(options: SpikeOptions) -> App {
+    assert_ne!(
+        spike_dispatch(&options),
+        SpikeDispatch::HeadlessMixed50Diagnostic,
+        "mixed50 recorded replay is a headless diagnostic"
+    );
     let title = format!(
         "Droll Stage 1 - {} - {}",
         options.scenario.as_str(),
@@ -361,5 +411,73 @@ fn update_window_status(
 fn escape_to_exit(keys: Res<ButtonInput<KeyCode>>, mut exit: MessageWriter<AppExit>) {
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use crate::physics::PreparationFailure;
+
+    use super::*;
+
+    fn recorded_options(scenario: SpikeScenario) -> SpikeOptions {
+        SpikeOptions {
+            scenario,
+            case_id: None,
+            mode: SpikeMode::RecordedReplay,
+        }
+    }
+
+    #[test]
+    fn test_mixed50_recorded_replay_dispatches_headlessly_without_building_app() {
+        let preparation_count = Cell::new(0);
+        let graphical_build_count = Cell::new(0);
+        let execution = execute_spike_dispatch(
+            recorded_options(SpikeScenario::Mixed50),
+            || {
+                preparation_count.set(preparation_count.get() + 1);
+                recorded_replay::Mixed50DiagnosticOutcome::BoundedExhaustion(PreparationFailure {
+                    attempts: Vec::new(),
+                })
+            },
+            |_| {
+                graphical_build_count.set(graphical_build_count.get() + 1);
+            },
+        );
+
+        assert!(matches!(
+            execution,
+            SpikeExecution::HeadlessMixed50Diagnostic(_)
+        ));
+        assert_eq!(preparation_count.get(), 1);
+        assert_eq!(graphical_build_count.get(), 0);
+    }
+
+    #[test]
+    fn test_mixed10_and_mixed20_recorded_replay_dispatch_graphically() {
+        for scenario in [SpikeScenario::Mixed10, SpikeScenario::Mixed20] {
+            let preparation_count = Cell::new(0);
+            let graphical_build_count = Cell::new(0);
+            let execution = execute_spike_dispatch(
+                recorded_options(scenario),
+                || {
+                    preparation_count.set(preparation_count.get() + 1);
+                    recorded_replay::Mixed50DiagnosticOutcome::BoundedExhaustion(
+                        PreparationFailure {
+                            attempts: Vec::new(),
+                        },
+                    )
+                },
+                |_| {
+                    graphical_build_count.set(graphical_build_count.get() + 1);
+                },
+            );
+
+            assert!(matches!(execution, SpikeExecution::Graphical(())));
+            assert_eq!(preparation_count.get(), 0);
+            assert_eq!(graphical_build_count.get(), 1);
+        }
     }
 }
