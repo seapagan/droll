@@ -85,6 +85,38 @@ pub struct SemanticPresentationMap {
 }
 
 impl SemanticPresentationMap {
+    /// Maps a complete d6 tuple over one already-complete immutable batch.
+    pub fn for_d6_tuple(
+        record: &RecordedBatch,
+        requested_faces: &[u8],
+    ) -> Result<Self, PresentationMapError> {
+        if record.dice.len() != requested_faces.len() {
+            return Err(PresentationMapError::MismatchedDieCount);
+        }
+        if record.dice.iter().any(|die| die.kind != DieKind::D6) {
+            return Err(PresentationMapError::ExpectedD6);
+        }
+        let accepted_physical_seed = accepted_physical_seed(record)?;
+        let d6 = record
+            .dice
+            .iter()
+            .zip(requested_faces)
+            .map(|(die, requested_face)| {
+                map_d6_presentation(
+                    die.natural_terminal_face,
+                    *requested_face,
+                    die.ordinal,
+                    accepted_physical_seed,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            natural_record_identity: natural_record_identity(record),
+            d6,
+            d20: Vec::new(),
+        })
+    }
+
     /// Maps one die from an already-complete immutable natural record.
     pub fn for_single_d6(
         record: &RecordedBatch,
@@ -244,24 +276,67 @@ pub fn natural_record_identity(record: &RecordedBatch) -> u64 {
         hash.bytes(format!("{:?}", attempt.outcome).as_bytes());
     }
     for die in &record.dice {
-        hash.u16(die.ordinal);
-        hash.u8(match die.kind {
-            DieKind::D6 => 6,
-            DieKind::D20 => 20,
-        });
-        hash.u8(die.natural_terminal_face);
-        hash.bytes(format!("{:?}", die.terminal).as_bytes());
-        for sample in &die.samples {
-            hash.u32(sample.fixed_step);
-            for value in sample.world_position {
-                hash.u32(value.to_bits());
-            }
-            for value in sample.unit_orientation {
-                hash.u32(value.to_bits());
-            }
+        hash_recorded_die(&mut hash, die);
+    }
+    hash_batch_contacts(&mut hash, record);
+    hash_calibration(&mut hash, record);
+    hash.finish()
+}
+
+fn hash_recorded_die(hash: &mut Fnv64, die: &super::types::RecordedDie) {
+    hash.u16(die.ordinal);
+    hash.u8(match die.kind {
+        DieKind::D6 => 6,
+        DieKind::D20 => 20,
+    });
+    for values in [
+        die.initial.world_position.as_slice(),
+        die.initial.unit_orientation.as_slice(),
+        die.initial.linear_velocity.as_slice(),
+        die.initial.angular_velocity.as_slice(),
+    ] {
+        for value in values {
+            hash.f32(*value);
         }
     }
-    hash.finish()
+    hash.u8(die.natural_terminal_face);
+    hash.bytes(format!("{:?}", die.terminal).as_bytes());
+    for sample in &die.samples {
+        hash.u32(sample.fixed_step);
+        for value in sample
+            .world_position
+            .into_iter()
+            .chain(sample.unit_orientation)
+        {
+            hash.f32(value);
+        }
+    }
+}
+
+fn hash_batch_contacts(hash: &mut Fnv64, record: &RecordedBatch) {
+    for sample in &record.contacts.dice_contact_samples {
+        hash.u32(sample.fixed_step);
+        hash.u16(sample.first_ordinal);
+        hash.u16(sample.second_ordinal);
+        for value in sample.world_point {
+            hash.f32(value);
+        }
+        for value in sample.world_normal {
+            hash.f32(value);
+        }
+        hash.f32(sample.normal_impulse);
+        hash.f32(sample.approach_speed);
+    }
+    hash.u32(record.contacts.dice_contact_interactions);
+}
+
+fn hash_calibration(hash: &mut Fnv64, record: &RecordedBatch) {
+    hash.u32(record.calibration.physics_hz);
+    hash.u32(record.calibration.recording_hz);
+    hash.u32(record.calibration.fixed_steps);
+    hash.duration(record.calibration.simulated_duration);
+    hash.u64(record.calibration.trajectory_sample_count as u64);
+    hash.u64(record.calibration.raw_trajectory_payload_bytes as u64);
 }
 
 struct Fnv64(u64);
@@ -294,6 +369,10 @@ impl Fnv64 {
         self.bytes(&value.to_le_bytes());
     }
 
+    fn f32(&mut self, value: f32) {
+        self.u32(value.to_bits());
+    }
+
     fn duration(&mut self, value: std::time::Duration) {
         self.u64(value.as_secs());
         self.u32(value.subsec_nanos());
@@ -313,6 +392,7 @@ fn mix64(mut value: u64) -> u64 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PresentationMapError {
     ExpectedSingleDie,
+    MismatchedDieCount,
     ExpectedD6,
     ExpectedD20,
     MissingAcceptedAttempt,

@@ -126,6 +126,35 @@ pub struct ContactDiagnostics {
     pub last_contact_step: Option<u32>,
 }
 
+/// One genuine dice-dice contact-bearing fixed step from the shared world.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DiceContactSample {
+    pub fixed_step: u32,
+    pub first_ordinal: u16,
+    pub second_ordinal: u16,
+    pub world_point: [f32; 3],
+    pub world_normal: [f32; 3],
+    pub normal_impulse: f32,
+    pub approach_speed: f32,
+}
+
+/// Bounded shared-interaction evidence for one accepted physical batch.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BatchContactDiagnostics {
+    pub dice_contact_samples: Vec<DiceContactSample>,
+    pub dice_contact_interactions: u32,
+    pub strongest_dice_contact: Option<DiceContactSample>,
+}
+
+/// Target-independent launch state retained for identity and overlap proofs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InitialPhysicalState {
+    pub world_position: [f32; 3],
+    pub unit_orientation: [f32; 4],
+    pub linear_velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+}
+
 /// Target-independent terminal measurements for one die.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NaturalTerminalDiagnostics {
@@ -144,6 +173,7 @@ pub struct NaturalTerminalDiagnostics {
 pub struct RecordedDie {
     pub ordinal: u16,
     pub kind: DieKind,
+    pub initial: InitialPhysicalState,
     pub samples: Vec<TrajectorySample>,
     pub natural_terminal_face: u8,
     pub terminal: NaturalTerminalDiagnostics,
@@ -235,6 +265,7 @@ pub struct RecordedBatch {
     pub fixed_step: Duration,
     pub attempts: Vec<AttemptDiagnostic>,
     pub dice: Vec<RecordedDie>,
+    pub contacts: BatchContactDiagnostics,
     pub calibration: CalibrationMetrics,
 }
 

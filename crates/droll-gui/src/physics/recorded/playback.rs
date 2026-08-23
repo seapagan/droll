@@ -32,6 +32,40 @@ pub struct RecordedTrajectoryPlayback {
     pub complete: bool,
 }
 
+/// One authoritative clock shared by every die in a concurrent replay.
+#[derive(Resource, Clone, Debug)]
+pub struct RecordedPlaybackClock {
+    pub elapsed: Duration,
+    pub window_start: Duration,
+    pub window_end: Duration,
+    pub speed: f32,
+    pub complete: bool,
+}
+
+impl Default for RecordedPlaybackClock {
+    fn default() -> Self {
+        Self {
+            elapsed: Duration::ZERO,
+            window_start: Duration::ZERO,
+            window_end: Duration::MAX,
+            speed: 1.0,
+            complete: false,
+        }
+    }
+}
+
+impl RecordedPlaybackClock {
+    pub fn configure(&mut self, start: Duration, end: Duration, speed: f32) {
+        assert!(end >= start, "playback window ends before it starts");
+        assert!(speed.is_finite() && speed > 0.0, "invalid playback speed");
+        self.elapsed = start;
+        self.window_start = start;
+        self.window_end = end;
+        self.speed = speed;
+        self.complete = start == end;
+    }
+}
+
 impl RecordedTrajectoryPlayback {
     #[must_use]
     pub fn new(samples: Arc<[TrajectorySample]>, fixed_step: Duration) -> Self {
@@ -60,28 +94,35 @@ pub struct RecordedPlaybackPlugin;
 
 impl Plugin for RecordedPlaybackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, advance_recorded_playback);
+        app.init_resource::<RecordedPlaybackClock>()
+            .add_systems(Update, advance_recorded_playback);
     }
 }
 
 fn advance_recorded_playback(
     time: Res<Time>,
+    mut clock: ResMut<RecordedPlaybackClock>,
     mut roots: Query<(&mut Transform, &mut RecordedTrajectoryPlayback), With<PlaybackRoot>>,
 ) {
+    if !clock.complete {
+        let scaled_delta = Duration::from_secs_f64(time.delta_secs_f64() * f64::from(clock.speed));
+        clock.elapsed = clock
+            .elapsed
+            .saturating_add(scaled_delta)
+            .min(clock.window_end);
+        clock.complete = clock.elapsed >= clock.window_end;
+    }
     for (mut transform, mut playback) in &mut roots {
-        if playback.complete {
-            continue;
-        }
-        playback.elapsed = playback.elapsed.saturating_add(time.delta());
         let sample = sample_recorded_transform(
             playback.samples.as_ref(),
             playback.fixed_step,
-            playback.elapsed,
+            clock.elapsed,
         )
         .expect("validated recorded trajectory");
         transform.translation = sample.world_position;
         transform.rotation = sample.recorded_orientation;
-        playback.complete = sample.at_end;
+        playback.elapsed = clock.elapsed;
+        playback.complete = clock.complete || sample.at_end;
     }
 }
 

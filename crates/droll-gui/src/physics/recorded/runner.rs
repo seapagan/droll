@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
 use avian3d::prelude::*;
 use bevy::{app::FixedPostUpdate, prelude::*, time::TimeUpdateStrategy};
@@ -7,9 +10,10 @@ use crate::dice::{d6_geometry, d20_geometry};
 
 use super::{
     types::{
-        AttemptDiagnostic, AttemptOutcome, CalibrationMetrics, ContactDiagnostics, DieKind,
-        FIXED_STEP, InvalidityReason, MAX_TOTAL_ATTEMPTS, NaturalTerminalDiagnostics,
-        PhysicalBatchRequest, PreparationFailure, RecordedBatch, RecordedDie, TrajectorySample,
+        AttemptDiagnostic, AttemptOutcome, BatchContactDiagnostics, CalibrationMetrics,
+        ContactDiagnostics, DiceContactSample, DieKind, FIXED_STEP, InitialPhysicalState,
+        InvalidityReason, MAX_TOTAL_ATTEMPTS, NaturalTerminalDiagnostics, PhysicalBatchRequest,
+        PreparationFailure, RecordedBatch, RecordedDie, TrajectorySample,
     },
     validity::{FaceObservation, classify_support, is_contained, observe_face},
 };
@@ -29,6 +33,7 @@ struct FixedStepCounter(u32);
 struct HiddenWorld {
     app: App,
     dice: Vec<Entity>,
+    initial_states: Vec<InitialPhysicalState>,
     floor: Entity,
     boundaries: Vec<Entity>,
     construction_duration: Duration,
@@ -38,6 +43,7 @@ struct HiddenWorld {
 struct DieRecorder {
     ordinal: u16,
     kind: DieKind,
+    initial: InitialPhysicalState,
     samples: Vec<TrajectorySample>,
     stable_steps: u16,
     stable_face: Option<u8>,
@@ -52,10 +58,19 @@ struct DieRecorder {
 
 struct AcceptedAttempt {
     dice: Vec<RecordedDie>,
+    contacts: BatchContactDiagnostics,
     fixed_steps: u32,
     wall_duration: Duration,
     construction_duration: Duration,
     entity_count: u32,
+}
+
+type AttemptFailure = (InvalidityReason, Box<AcceptedAttempt>);
+
+#[derive(Default)]
+struct BatchContactRecorder {
+    active_pairs: BTreeSet<(u16, u16)>,
+    diagnostics: BatchContactDiagnostics,
 }
 
 pub fn prepare_recorded_batch(
@@ -91,6 +106,7 @@ pub fn prepare_recorded_batch(
                     fixed_step: FIXED_STEP,
                     attempts: diagnostics,
                     dice: accepted.dice,
+                    contacts: accepted.contacts,
                     calibration,
                 });
             }
@@ -111,9 +127,10 @@ pub fn prepare_recorded_batch(
 fn run_attempt(
     request: &PhysicalBatchRequest,
     seed: u64,
-) -> Result<AcceptedAttempt, (InvalidityReason, AcceptedAttempt)> {
+) -> Result<AcceptedAttempt, AttemptFailure> {
     let hidden = build_hidden_world(request, seed);
-    let mut recorders = create_recorders(request);
+    let mut recorders = create_recorders(request, &hidden.initial_states);
+    let mut batch_contacts = BatchContactRecorder::default();
     let simulation_started = Instant::now();
     let mut hidden = hidden;
     for fixed_step in 1..=request.validity().watchdog_steps {
@@ -124,15 +141,18 @@ fn run_attempt(
             return failed_attempt(
                 hidden,
                 recorders,
+                batch_contacts,
                 fixed_step,
                 simulation_started.elapsed(),
                 InvalidityReason::FixedStepDidNotAdvanceExactlyOnce,
             );
         }
+        record_batch_contacts(&hidden, fixed_step, &mut batch_contacts);
         if let Err(reason) = record_step(&hidden, &mut recorders, fixed_step, request) {
             return failed_attempt(
                 hidden,
                 recorders,
+                batch_contacts,
                 fixed_step,
                 simulation_started.elapsed(),
                 reason,
@@ -145,6 +165,7 @@ fn run_attempt(
             return finish_attempt(
                 hidden,
                 recorders,
+                batch_contacts,
                 fixed_step,
                 simulation_started.elapsed(),
                 request,
@@ -155,6 +176,7 @@ fn run_attempt(
     failed_attempt(
         hidden,
         recorders,
+        batch_contacts,
         request.validity().watchdog_steps,
         simulation_started.elapsed(),
         reason,
@@ -182,11 +204,12 @@ fn build_hidden_world(request: &PhysicalBatchRequest, seed: u64) -> HiddenWorld 
     let tray = request.tray();
     let floor = spawn_floor(&mut app, tray);
     let boundaries = spawn_boundaries(&mut app, tray);
-    let dice = spawn_dice(&mut app, request.dice(), seed);
+    let (dice, initial_states) = spawn_dice(&mut app, request.dice(), seed);
     let entity_count = app.world().entities().len();
     HiddenWorld {
         app,
         dice,
+        initial_states,
         floor,
         boundaries,
         construction_duration: started.elapsed(),
@@ -241,14 +264,29 @@ fn spawn_boundaries(app: &mut App, tray: super::types::PhysicalTray) -> Vec<Enti
     entities
 }
 
-fn spawn_dice(app: &mut App, kinds: &[DieKind], seed: u64) -> Vec<Entity> {
+fn spawn_dice(
+    app: &mut App,
+    kinds: &[DieKind],
+    seed: u64,
+) -> (Vec<Entity>, Vec<InitialPhysicalState>) {
     let mut rng = PhysicalRng::new(seed);
-    kinds
+    let phase3_4d6 = kinds.len() == 4 && kinds.iter().all(|kind| *kind == DieKind::D6);
+    let launches = kinds
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            if phase3_4d6 {
+                interacting_4d6_launch(index, &mut rng)
+            } else {
+                ordinary_launch(index, kinds.len(), &mut rng)
+            }
+        })
+        .collect::<Vec<_>>();
+    let entities = kinds
         .iter()
         .copied()
-        .enumerate()
-        .map(|(index, kind)| {
-            let transform = launch_transform(index, kinds.len(), &mut rng);
+        .zip(launches.iter().copied())
+        .map(|(kind, launch)| {
             let collider = match kind {
                 DieKind::D6 => Collider::convex_hull(d6_geometry().collider_vertices()),
                 DieKind::D20 => Collider::convex_hull(d20_geometry().collider_vertices()),
@@ -265,20 +303,18 @@ fn spawn_dice(app: &mut App, kinds: &[DieKind], seed: u64) -> Vec<Entity> {
                     Restitution::new(0.32),
                     LinearDamping(0.18),
                     AngularDamping(0.28),
-                    LinearVelocity(Vec3::new(rng.range(-1.5, 1.5), 0.2, rng.range(-1.2, 1.2))),
-                    AngularVelocity(Vec3::new(
-                        rng.range(-8.0, 8.0),
-                        rng.range(-8.0, 8.0),
-                        rng.range(-8.0, 8.0),
-                    )),
-                    transform,
+                    LinearVelocity(Vec3::from_array(launch.linear_velocity)),
+                    AngularVelocity(Vec3::from_array(launch.angular_velocity)),
+                    Transform::from_translation(Vec3::from_array(launch.world_position))
+                        .with_rotation(Quat::from_array(launch.unit_orientation)),
                 ))
                 .id()
         })
-        .collect()
+        .collect();
+    (entities, launches)
 }
 
-fn launch_transform(index: usize, count: usize, rng: &mut PhysicalRng) -> Transform {
+fn ordinary_launch(index: usize, count: usize, rng: &mut PhysicalRng) -> InitialPhysicalState {
     let centered = index as f32 - (count.saturating_sub(1)) as f32 * 0.5;
     let position = Vec3::new(
         centered * 1.15 + rng.range(-0.12, 0.12),
@@ -288,19 +324,69 @@ fn launch_transform(index: usize, count: usize, rng: &mut PhysicalRng) -> Transf
     let axis = Vec3::new(rng.signed(), rng.signed(), rng.signed())
         .try_normalize()
         .unwrap_or(Vec3::Y);
-    Transform::from_translation(position)
-        .with_rotation(Quat::from_axis_angle(axis, rng.range(0.2, 5.8)))
+    let orientation = Quat::from_axis_angle(axis, rng.range(0.2, 5.8));
+    let linear_velocity = Vec3::new(rng.range(-1.5, 1.5), 0.2, rng.range(-1.2, 1.2));
+    let angular_velocity = Vec3::new(
+        rng.range(-8.0, 8.0),
+        rng.range(-8.0, 8.0),
+        rng.range(-8.0, 8.0),
+    );
+    initial_state(position, orientation, linear_velocity, angular_velocity)
 }
 
-fn create_recorders(request: &PhysicalBatchRequest) -> Vec<DieRecorder> {
+fn interacting_4d6_launch(index: usize, rng: &mut PhysicalRng) -> InitialPhysicalState {
+    let base = [
+        Vec3::new(-1.05, 3.32, -1.05),
+        Vec3::new(1.05, 3.12, -1.05),
+        Vec3::new(1.05, 3.38, 1.05),
+        Vec3::new(-1.05, 3.18, 1.05),
+    ][index];
+    let position = base + Vec3::new(rng.range(-0.04, 0.04), 0.0, rng.range(-0.04, 0.04));
+    let axis = Vec3::new(rng.signed(), rng.signed(), rng.signed())
+        .try_normalize()
+        .unwrap_or(Vec3::Y);
+    let orientation = Quat::from_axis_angle(axis, rng.range(0.2, 5.8));
+    let inward = -Vec3::new(position.x, 0.0, position.z).normalize();
+    let tangent = Vec3::new(-inward.z, 0.0, inward.x);
+    let linear_velocity = inward * rng.range(2.35, 2.85)
+        + tangent * rng.range(-0.35, 0.35)
+        + Vec3::Y * rng.range(-0.15, 0.45);
+    let angular_velocity = Vec3::new(
+        rng.range(-9.0, 9.0),
+        rng.range(-9.0, 9.0),
+        rng.range(-9.0, 9.0),
+    );
+    initial_state(position, orientation, linear_velocity, angular_velocity)
+}
+
+fn initial_state(
+    position: Vec3,
+    orientation: Quat,
+    linear_velocity: Vec3,
+    angular_velocity: Vec3,
+) -> InitialPhysicalState {
+    InitialPhysicalState {
+        world_position: position.to_array(),
+        unit_orientation: orientation.to_array(),
+        linear_velocity: linear_velocity.to_array(),
+        angular_velocity: angular_velocity.to_array(),
+    }
+}
+
+fn create_recorders(
+    request: &PhysicalBatchRequest,
+    initial_states: &[InitialPhysicalState],
+) -> Vec<DieRecorder> {
     request
         .dice()
         .iter()
         .copied()
+        .zip(initial_states.iter().copied())
         .enumerate()
-        .map(|(ordinal, kind)| DieRecorder {
+        .map(|(ordinal, (kind, initial))| DieRecorder {
             ordinal: u16::try_from(ordinal).expect("batch size checked"),
             kind,
+            initial,
             samples: Vec::with_capacity(request.validity().watchdog_steps as usize),
             stable_steps: 0,
             stable_face: None,
@@ -313,6 +399,85 @@ fn create_recorders(request: &PhysicalBatchRequest) -> Vec<DieRecorder> {
             contact_diagnostics: ContactDiagnostics::default(),
         })
         .collect()
+}
+
+fn record_batch_contacts(
+    hidden: &HiddenWorld,
+    fixed_step: u32,
+    recorder: &mut BatchContactRecorder,
+) {
+    let graph = hidden.app.world().resource::<ContactGraph>();
+    let mut current_pairs = BTreeSet::new();
+    for first in 0..hidden.dice.len() {
+        for second in (first + 1)..hidden.dice.len() {
+            let Some((_, pair)) = graph.get(hidden.dice[first], hidden.dice[second]) else {
+                continue;
+            };
+            if !pair.is_touching() {
+                continue;
+            }
+            let ordinals = (
+                u16::try_from(first).expect("batch size checked"),
+                u16::try_from(second).expect("batch size checked"),
+            );
+            current_pairs.insert(ordinals);
+            if let Some(sample) = strongest_pair_sample(pair, ordinals, fixed_step, hidden) {
+                update_strongest_contact(&mut recorder.diagnostics, sample);
+                recorder.diagnostics.dice_contact_samples.push(sample);
+            }
+        }
+    }
+    recorder.diagnostics.dice_contact_interactions +=
+        u32::try_from(current_pairs.difference(&recorder.active_pairs).count()).unwrap_or(u32::MAX);
+    recorder.active_pairs = current_pairs;
+}
+
+fn strongest_pair_sample(
+    pair: &ContactPair,
+    ordinals: (u16, u16),
+    fixed_step: u32,
+    hidden: &HiddenWorld,
+) -> Option<DiceContactSample> {
+    let (normal, point) = pair
+        .manifolds
+        .iter()
+        .flat_map(|manifold| {
+            manifold
+                .points
+                .iter()
+                .map(move |point| (manifold.normal, point))
+        })
+        .max_by(|(_, left), (_, right)| {
+            left.normal_impulse
+                .abs()
+                .total_cmp(&right.normal_impulse.abs())
+                .then_with(|| (-left.normal_speed).total_cmp(&-right.normal_speed))
+        })?;
+    let world_normal = if pair.collider1 == hidden.dice[usize::from(ordinals.0)] {
+        normal
+    } else {
+        -normal
+    };
+    Some(DiceContactSample {
+        fixed_step,
+        first_ordinal: ordinals.0,
+        second_ordinal: ordinals.1,
+        world_point: point.point.to_array(),
+        world_normal: world_normal.to_array(),
+        normal_impulse: point.normal_impulse.abs(),
+        approach_speed: (-point.normal_speed).max(0.0),
+    })
+}
+
+fn update_strongest_contact(diagnostics: &mut BatchContactDiagnostics, sample: DiceContactSample) {
+    let replace = diagnostics.strongest_dice_contact.is_none_or(|strongest| {
+        sample.normal_impulse > strongest.normal_impulse
+            || (sample.normal_impulse == strongest.normal_impulse
+                && sample.approach_speed > strongest.approach_speed)
+    });
+    if replace {
+        diagnostics.strongest_dice_contact = Some(sample);
+    }
 }
 
 fn record_step(
@@ -453,10 +618,11 @@ fn reset_stability(recorder: &mut DieRecorder) {
 fn finish_attempt(
     hidden: HiddenWorld,
     recorders: Vec<DieRecorder>,
+    batch_contacts: BatchContactRecorder,
     fixed_steps: u32,
     wall_duration: Duration,
     request: &PhysicalBatchRequest,
-) -> Result<AcceptedAttempt, (InvalidityReason, AcceptedAttempt)> {
+) -> Result<AcceptedAttempt, AttemptFailure> {
     let positions = die_positions(&hidden);
     let mut recorded_dice = Vec::with_capacity(recorders.len());
     for (index, (entity, recorder)) in hidden.dice.iter().copied().zip(recorders).enumerate() {
@@ -470,14 +636,21 @@ fn finish_attempt(
         ) {
             Ok(die) => recorded_dice.push(die),
             Err(reason) => {
-                let attempt = accepted_attempt(hidden, recorded_dice, fixed_steps, wall_duration);
-                return Err((reason, attempt));
+                let attempt = accepted_attempt(
+                    hidden,
+                    recorded_dice,
+                    batch_contacts.diagnostics,
+                    fixed_steps,
+                    wall_duration,
+                );
+                return Err((reason, Box::new(attempt)));
             }
         }
     }
     Ok(accepted_attempt(
         hidden,
         recorded_dice,
+        batch_contacts.diagnostics,
         fixed_steps,
         wall_duration,
     ))
@@ -495,6 +668,7 @@ fn finish_die(
     Ok(RecordedDie {
         ordinal: recorder.ordinal,
         kind: recorder.kind,
+        initial: recorder.initial,
         samples: recorder.samples,
         natural_terminal_face: recorder.last_face.value,
         terminal: NaturalTerminalDiagnostics {
@@ -562,11 +736,13 @@ fn current_support(
 fn accepted_attempt(
     hidden: HiddenWorld,
     dice: Vec<RecordedDie>,
+    contacts: BatchContactDiagnostics,
     fixed_steps: u32,
     wall_duration: Duration,
 ) -> AcceptedAttempt {
     AcceptedAttempt {
         dice,
+        contacts,
         fixed_steps,
         wall_duration,
         construction_duration: hidden.construction_duration,
@@ -577,15 +753,17 @@ fn accepted_attempt(
 fn failed_attempt(
     hidden: HiddenWorld,
     recorders: Vec<DieRecorder>,
+    batch_contacts: BatchContactRecorder,
     fixed_steps: u32,
     wall_duration: Duration,
     reason: InvalidityReason,
-) -> Result<AcceptedAttempt, (InvalidityReason, AcceptedAttempt)> {
+) -> Result<AcceptedAttempt, AttemptFailure> {
     let dice = recorders
         .into_iter()
         .map(|recorder| RecordedDie {
             ordinal: recorder.ordinal,
             kind: recorder.kind,
+            initial: recorder.initial,
             samples: recorder.samples,
             natural_terminal_face: recorder.last_face.value,
             terminal: NaturalTerminalDiagnostics {
@@ -602,7 +780,13 @@ fn failed_attempt(
         .collect();
     Err((
         reason,
-        accepted_attempt(hidden, dice, fixed_steps, wall_duration),
+        Box::new(accepted_attempt(
+            hidden,
+            dice,
+            batch_contacts.diagnostics,
+            fixed_steps,
+            wall_duration,
+        )),
     ))
 }
 

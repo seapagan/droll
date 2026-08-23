@@ -6,6 +6,7 @@ fn resting_recorder() -> DieRecorder {
     DieRecorder {
         ordinal: 1,
         kind: DieKind::D6,
+        initial: initial_state(Vec3::ZERO, Quat::IDENTITY, Vec3::ZERO, Vec3::ZERO),
         samples: Vec::new(),
         stable_steps: 0,
         stable_face: None,

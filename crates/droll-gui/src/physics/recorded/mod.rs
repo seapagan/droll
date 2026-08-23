@@ -8,8 +8,8 @@ mod validity;
 
 pub use playback::{
     FixedD6Presentation, FixedD20Presentation, NumberedVisual, PlaybackError, PlaybackRoot,
-    RecordedPlaybackPlugin, RecordedTrajectoryPlayback, SampledPlaybackTransform,
-    compose_visible_orientation, sample_recorded_transform,
+    RecordedPlaybackClock, RecordedPlaybackPlugin, RecordedTrajectoryPlayback,
+    SampledPlaybackTransform, compose_visible_orientation, sample_recorded_transform,
 };
 pub use presentation::{
     D6PresentationMapping, D6PresentationPhase, D20PresentationMapping, D20PresentationPhase,
@@ -18,8 +18,9 @@ pub use presentation::{
 };
 pub use runner::prepare_recorded_batch;
 pub use types::{
-    AttemptDiagnostic, AttemptOutcome, CalibrationMetrics, ContactDiagnostics, DieKind,
-    InvalidityReason, NaturalTerminalDiagnostics, PhysicalBatchRequest, PhysicalTray,
-    PreparationFailure, RecordedBatch, RecordedDie, SupportClassification, TrajectorySample,
+    AttemptDiagnostic, AttemptOutcome, BatchContactDiagnostics, CalibrationMetrics,
+    ContactDiagnostics, DiceContactSample, DieKind, InitialPhysicalState, InvalidityReason,
+    NaturalTerminalDiagnostics, PhysicalBatchRequest, PhysicalTray, PreparationFailure,
+    RecordedBatch, RecordedDie, SupportClassification, TrajectorySample,
 };
 pub use validity::PhysicalValidityPolicy;

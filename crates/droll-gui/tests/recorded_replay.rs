@@ -6,16 +6,18 @@ use droll_gui::{
     dice::{d6_geometry, d6_solid_symmetries, d20_geometry, d20_solid_symmetries},
     physics::{
         D20PresentationMapping, DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual,
-        PhysicalBatchRequest, PlaybackRoot, RecordedPlaybackPlugin, RecordedTrajectoryPlayback,
-        SemanticPresentationMap, TrajectorySample, compose_visible_orientation,
-        map_d6_presentation, map_d20_presentation, natural_record_identity, prepare_recorded_batch,
-        sample_recorded_transform,
+        PhysicalBatchRequest, PlaybackRoot, RecordedPlaybackClock, RecordedPlaybackPlugin,
+        RecordedTrajectoryPlayback, SemanticPresentationMap, TrajectorySample,
+        compose_visible_orientation, map_d6_presentation, map_d20_presentation,
+        natural_record_identity, prepare_recorded_batch, sample_recorded_transform,
     },
 };
 
 const EPSILON: f32 = 1.0e-5;
 const PHYSICAL_SEED: u64 = 0xD65A_1E00_0000_0001;
 const D20_PHYSICAL_SEED: u64 = 0xD20A_1E00_0000_0001;
+const PHASE3_4D6_SEED: u64 = 0x4D6A_1E00_0000_0003;
+const PHASE3_TUPLES: [[u8; 4]; 4] = [[6, 6, 6, 6], [1, 2, 3, 4], [6, 2, 5, 3], [2, 5, 1, 6]];
 
 #[test]
 fn test_all_36_d6_pairs_use_proper_group_and_target_independent_phase() {
@@ -173,6 +175,69 @@ fn test_one_immutable_natural_record_maps_all_twenty_d20_values() {
 }
 
 #[test]
+fn test_phase3_tuples_change_only_four_presentation_mappings() {
+    let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+        vec![DieKind::D6; 4],
+        PHASE3_4D6_SEED,
+    ))
+    .expect("one target-blind interacting 4d6 record");
+    let frozen = record.clone();
+    let identity = natural_record_identity(&record);
+    let accepted_seed = record
+        .attempts
+        .last()
+        .expect("accepted attempt")
+        .physical_seed;
+    let expected_ordinals = [0_u16, 1, 2, 3];
+    let mut physical_phases = None;
+    let mut tuple_mappings = Vec::new();
+    let contact_elapsed = record.fixed_step
+        * record
+            .contacts
+            .strongest_dice_contact
+            .expect("strongest contact")
+            .fixed_step
+            .saturating_sub(1);
+    for requested in PHASE3_TUPLES {
+        let presentation = SemanticPresentationMap::for_d6_tuple(&record, &requested)
+            .expect("complete 4d6 presentation map");
+        assert_eq!(presentation.natural_record_identity, identity);
+        assert_eq!(presentation.d6.len(), 4);
+        let phases = presentation
+            .d6
+            .iter()
+            .map(|mapping| (mapping.phase.index, mapping.phase.identifier))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            physical_phases.get_or_insert_with(|| phases.clone()),
+            &phases
+        );
+        for (index, mapping) in presentation.d6.iter().copied().enumerate() {
+            let die = &record.dice[index];
+            assert_eq!(mapping.ordinal, expected_ordinals[index]);
+            assert_eq!(mapping.ordinal, die.ordinal);
+            assert_eq!(mapping.natural_face, die.natural_terminal_face);
+            assert_eq!(mapping.requested_face, requested[index]);
+            assert_eq!(mapping.accepted_physical_seed, accepted_seed);
+            assert_visible_transform_contract(&die.samples, record.fixed_step, mapping);
+            let contact =
+                sample_recorded_transform(&die.samples, record.fixed_step, contact_elapsed)
+                    .expect("strongest-contact transform");
+            assert_occupied_shape_unchanged(contact.recorded_orientation, mapping.symmetry);
+        }
+        tuple_mappings.push(presentation.d6);
+        assert_eq!(record, frozen, "tuple mapping mutated the physical record");
+        assert_eq!(natural_record_identity(&record), identity);
+    }
+    assert_eq!(record.attempts, frozen.attempts);
+    assert_eq!(record.dice, frozen.dice);
+    assert_eq!(record.contacts, frozen.contacts);
+    assert_eq!(record.calibration, frozen.calibration);
+    assert_eq!(tuple_mappings[0][0], tuple_mappings[2][0]);
+    assert_eq!(tuple_mappings[1][1], tuple_mappings[2][1]);
+}
+
+#[test]
 fn test_recorded_sampler_preserves_endpoints_at_render_cadences() {
     let samples = representative_samples();
     let fixed_step = Duration::from_secs_f64(1.0 / 60.0);
@@ -325,6 +390,42 @@ fn test_playback_plugin_has_no_visible_physics_components() {
             .rotation,
         symmetry_before
     );
+}
+
+#[test]
+fn test_four_playback_roots_advance_on_exactly_one_shared_clock() {
+    let samples: Arc<[TrajectorySample]> = representative_samples().into();
+    let fixed_step = Duration::from_secs_f64(1.0 / 60.0);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(RecordedPlaybackPlugin);
+    let roots = (0..4)
+        .map(|_| {
+            app.world_mut()
+                .spawn((
+                    PlaybackRoot,
+                    RecordedTrajectoryPlayback::new(samples.clone(), fixed_step),
+                    Transform::IDENTITY,
+                ))
+                .id()
+        })
+        .collect::<Vec<_>>();
+    app.world_mut()
+        .resource_mut::<RecordedPlaybackClock>()
+        .configure(Duration::ZERO, fixed_step * 2, 0.2);
+    app.update();
+    app.update();
+
+    let clock = app.world().resource::<RecordedPlaybackClock>();
+    for root in roots {
+        let entity = app.world().entity(root);
+        let playback = entity.get::<RecordedTrajectoryPlayback>().unwrap();
+        assert_eq!(playback.elapsed, clock.elapsed);
+        assert_eq!(playback.fixed_step, fixed_step);
+        assert!(entity.get::<RigidBody>().is_none());
+        assert!(entity.get::<Collider>().is_none());
+    }
+    assert_eq!(clock.speed, 0.2);
 }
 
 #[test]

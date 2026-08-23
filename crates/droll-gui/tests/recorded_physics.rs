@@ -1,10 +1,12 @@
 use std::{collections::BTreeSet, mem::size_of};
 
-use bevy::prelude::Quat;
+use bevy::prelude::{Quat, Vec3};
 use droll_gui::physics::{
     AttemptOutcome, DieKind, InvalidityReason, PhysicalBatchRequest, PhysicalValidityPolicy,
-    TrajectorySample, prepare_recorded_batch,
+    TrajectorySample, natural_record_identity, prepare_recorded_batch,
 };
+
+const PHASE3_4D6_SEED: u64 = 0x4D6A_1E00_0000_0003;
 
 #[test]
 fn test_phase_0_validity_policy_is_preregistered() {
@@ -123,6 +125,29 @@ fn test_retry_discards_whole_batch_and_stops_after_three_attempts() {
 }
 
 #[test]
+fn test_phase3_retries_only_complete_4d6_batches() {
+    let request = PhysicalBatchRequest::new(vec![DieKind::D6; 4], PHASE3_4D6_SEED)
+        .with_validity_policy(PhysicalValidityPolicy::default().with_watchdog_steps(1));
+    let failure = prepare_recorded_batch(&request).expect_err("one step cannot settle 4d6");
+    assert_eq!(failure.attempts.len(), 3);
+    assert!(
+        failure
+            .attempts
+            .iter()
+            .all(|attempt| attempt.die_count == 4 && attempt.fixed_steps == 1)
+    );
+    assert_eq!(
+        failure
+            .attempts
+            .iter()
+            .map(|attempt| attempt.physical_seed)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        3
+    );
+}
+
+#[test]
 fn test_d6_and_d20_hidden_runs_are_unpaced_normalized_and_in_memory() {
     for (kind, seed) in [(DieKind::D6, 0xD6), (DieKind::D20, 0xD20)] {
         let record = prepare_recorded_batch(&PhysicalBatchRequest::new(vec![kind], seed))
@@ -193,6 +218,122 @@ fn test_identical_physical_request_repeats_identical_natural_record() {
         assert_eq!(left.fixed_steps, right.fixed_steps);
         assert_eq!(left.outcome, right.outcome);
     }
+}
+
+#[test]
+fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
+    let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+        vec![DieKind::D6; 4],
+        PHASE3_4D6_SEED,
+    ))
+    .expect("interacting 4d6 checkpoint record");
+    assert_eq!(record.dice.len(), 4);
+    assert_eq!(
+        record
+            .dice
+            .iter()
+            .map(|die| die.ordinal)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, 3]
+    );
+    let closest_spawn_distance = assert_nonoverlapping_initial_states(&record);
+    assert!(record.contacts.dice_contact_interactions >= 2);
+    assert!(!record.contacts.dice_contact_samples.is_empty());
+    assert_contact_samples_are_ordered(&record);
+    assert!(meaningful_contact_pairs(&record).len() >= 2);
+    let strongest = record
+        .contacts
+        .strongest_dice_contact
+        .expect("strongest genuine dice contact");
+    assert!(strongest.normal_impulse > 0.0);
+    assert!(strongest.approach_speed > 0.0);
+    assert!(record.dice.iter().all(|die| {
+        die.samples.len()
+            == usize::try_from(record.calibration.fixed_steps).expect("bounded fixed steps")
+    }));
+    eprintln!(
+        "phase3-4d6 id={:016x} seed={PHASE3_4D6_SEED:#018x} accepted={:#018x} attempts={} faces={:?} steps={} samples_per_die={} simulated={:?} closest_spawn={closest_spawn_distance:.6} interactions={} contact_steps={} strongest_time={:?} strongest={strongest:?} initials={:?}",
+        natural_record_identity(&record),
+        record
+            .attempts
+            .last()
+            .expect("accepted attempt")
+            .physical_seed,
+        record.attempts.len(),
+        record
+            .dice
+            .iter()
+            .map(|die| die.natural_terminal_face)
+            .collect::<Vec<_>>(),
+        record.calibration.fixed_steps,
+        record.dice[0].samples.len(),
+        record.calibration.simulated_duration,
+        record.contacts.dice_contact_interactions,
+        record.contacts.dice_contact_samples.len(),
+        record.fixed_step * strongest.fixed_step,
+        record
+            .dice
+            .iter()
+            .map(|die| die.initial)
+            .collect::<Vec<_>>(),
+    );
+}
+
+fn meaningful_contact_pairs(record: &droll_gui::physics::RecordedBatch) -> BTreeSet<(u16, u16)> {
+    record
+        .contacts
+        .dice_contact_samples
+        .iter()
+        .filter(|sample| sample.normal_impulse > 0.05 && sample.approach_speed > 0.10)
+        .map(|sample| (sample.first_ordinal, sample.second_ordinal))
+        .collect()
+}
+
+fn assert_nonoverlapping_initial_states(record: &droll_gui::physics::RecordedBatch) -> f32 {
+    let minimum_separation = 2.0 * DieKind::D6.circumradius();
+    let mut closest = f32::INFINITY;
+    for first in 0..record.dice.len() {
+        for second in (first + 1)..record.dice.len() {
+            let first_position = Vec3::from_array(record.dice[first].initial.world_position);
+            let second_position = Vec3::from_array(record.dice[second].initial.world_position);
+            let distance = first_position.distance(second_position);
+            closest = closest.min(distance);
+            assert!(
+                distance > minimum_separation,
+                "initial bounding spheres overlap for ordinals {first}/{second}"
+            );
+        }
+    }
+    closest
+}
+
+fn assert_contact_samples_are_ordered(record: &droll_gui::physics::RecordedBatch) {
+    for sample in &record.contacts.dice_contact_samples {
+        assert!(sample.first_ordinal < sample.second_ordinal);
+        assert!(sample.second_ordinal < 4);
+        assert!(sample.fixed_step <= record.calibration.fixed_steps);
+        assert!(Vec3::from_array(sample.world_point).is_finite());
+        assert!((Vec3::from_array(sample.world_normal).length() - 1.0).abs() < 1.0e-4);
+        assert!(sample.normal_impulse >= 0.0);
+        assert!(sample.approach_speed >= 0.0);
+    }
+    assert!(
+        record
+            .contacts
+            .dice_contact_samples
+            .windows(2)
+            .all(|samples| {
+                (
+                    samples[0].fixed_step,
+                    samples[0].first_ordinal,
+                    samples[0].second_ordinal,
+                ) <= (
+                    samples[1].fixed_step,
+                    samples[1].first_ordinal,
+                    samples[1].second_ordinal,
+                )
+            })
+    );
 }
 
 #[test]
