@@ -18,6 +18,23 @@ fn test_phase3_scenario_is_explicitly_named_4d6() {
 }
 
 #[test]
+fn test_phase4_scenarios_are_explicitly_named() {
+    assert_eq!(
+        SpikeScenario::from_str("mixed10"),
+        Ok(SpikeScenario::Mixed10)
+    );
+    assert_eq!(
+        SpikeScenario::from_str("mixed20"),
+        Ok(SpikeScenario::Mixed20)
+    );
+    assert_eq!(
+        SpikeScenario::from_str("mixed50"),
+        Ok(SpikeScenario::Mixed50)
+    );
+    assert!(SpikeScenario::from_str("2d20-8d6").is_err());
+}
+
+#[test]
 fn test_recorded_replay_harness_prepares_once_without_visible_physics() {
     let harness = include_str!("../src/spike/recorded_replay.rs");
     let production = harness
@@ -32,7 +49,7 @@ fn test_recorded_replay_harness_prepares_once_without_visible_physics() {
     }
     assert_eq!(
         production
-            .matches("prepare_recorded_batch(&PhysicalBatchRequest")
+            .matches("prepare_recorded_batch(&request)")
             .count(),
         1,
         "full checkpoint must prepare physics exactly once"
