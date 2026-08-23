@@ -12,9 +12,9 @@ use crate::{
     dice::{D20Label, d6_geometry, d6_labels, d6_mesh, d20_geometry, d20_labels, d20_mesh},
     physics::{
         DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual, PhysicalBatchRequest,
-        PlaybackRoot, RecordedBatch, RecordedTrajectoryPlayback, SemanticPresentationMap,
-        compose_visible_orientation, natural_record_identity, prepare_recorded_batch,
-        sample_recorded_transform,
+        PlaybackRoot, RecordedBatch, RecordedPlaybackClock, RecordedTrajectoryPlayback,
+        SemanticPresentationMap, compose_visible_orientation, natural_record_identity,
+        prepare_recorded_batch, sample_recorded_transform,
     },
 };
 
@@ -22,6 +22,10 @@ use super::{SpikeOptions, SpikeScenario};
 
 pub(super) const RECORDED_D6_PHYSICAL_SEED: u64 = 0xD65A_1E00_0000_0001;
 pub(super) const RECORDED_D20_PHYSICAL_SEED: u64 = 0xD20A_1E00_0000_0001;
+pub(super) const RECORDED_4D6_PHYSICAL_SEED: u64 = 0x4D6A_1E00_0000_0003;
+const PHASE3_TUPLES: [[u8; 4]; 4] = [[6, 6, 6, 6], [1, 2, 3, 4], [6, 2, 5, 3], [2, 5, 1, 6]];
+const STRONGEST_CONTACT_CASE: &str = "strongest-contact";
+const SLOW_MOTION_SPEED: f32 = 0.2;
 
 #[derive(Resource)]
 pub(super) struct RecordedReplaySequence {
@@ -29,43 +33,66 @@ pub(super) struct RecordedReplaySequence {
     record: Arc<RecordedBatch>,
     mappings: Vec<SemanticPresentationMap>,
     index: usize,
-    active: Entity,
+    active: Vec<Entity>,
+    playback_start: Duration,
+    playback_end: Duration,
+    playback_speed: f32,
     terminal_hold_seconds: f32,
 }
 
 pub(super) fn setup_recorded_replay(
     mut commands: Commands,
     options: Res<SpikeOptions>,
+    mut playback_clock: ResMut<RecordedPlaybackClock>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let (kind, physical_seed) = match options.scenario {
-        SpikeScenario::D6Faces => (DieKind::D6, RECORDED_D6_PHYSICAL_SEED),
-        SpikeScenario::D20Faces => (DieKind::D20, RECORDED_D20_PHYSICAL_SEED),
+    let (kind, dice, physical_seed) = match options.scenario {
+        SpikeScenario::D6Faces => (DieKind::D6, vec![DieKind::D6], RECORDED_D6_PHYSICAL_SEED),
+        SpikeScenario::D20Faces => (DieKind::D20, vec![DieKind::D20], RECORDED_D20_PHYSICAL_SEED),
+        SpikeScenario::FourD6 => (
+            DieKind::D6,
+            vec![DieKind::D6; 4],
+            RECORDED_4D6_PHYSICAL_SEED,
+        ),
         scenario => panic!("recorded replay does not support scenario `{scenario}`"),
     };
     let record = Arc::new(
-        prepare_recorded_batch(&PhysicalBatchRequest::new(vec![kind], physical_seed))
+        prepare_recorded_batch(&PhysicalBatchRequest::new(dice, physical_seed))
             .expect("recorded-replay hidden preparation"),
     );
-    let requested_faces = selected_requested_faces(kind, options.case_id.as_deref());
-    let mappings = requested_faces
+    let requested_tuples = selected_requested_tuples(&record, kind, options.case_id.as_deref());
+    let mappings = requested_tuples
         .into_iter()
-        .map(|requested| match kind {
-            DieKind::D6 => SemanticPresentationMap::for_single_d6(&record, requested),
-            DieKind::D20 => SemanticPresentationMap::for_single_d20(&record, requested),
+        .map(|requested| match (kind, requested.as_slice()) {
+            (DieKind::D6, [face]) => SemanticPresentationMap::for_single_d6(&record, *face),
+            (DieKind::D6, tuple) => SemanticPresentationMap::for_d6_tuple(&record, tuple),
+            (DieKind::D20, [face]) => SemanticPresentationMap::for_single_d20(&record, *face),
+            (DieKind::D20, _) => unreachable!("d20 checkpoint uses one die"),
         })
         .collect::<Result<Vec<_>, _>>()
         .expect("complete proper-symmetry maps");
     log_preparation(&record, &mappings, physical_seed, kind);
-    spawn_recorded_environment(&mut commands, &mut meshes, &mut materials, kind);
-    let active = spawn_recorded_die(
+    let (playback_start, playback_end, playback_speed) = playback_profile(
+        &record,
+        options.case_id.as_deref() == Some(STRONGEST_CONTACT_CASE),
+    );
+    playback_clock.configure(playback_start, playback_end, playback_speed);
+    spawn_recorded_environment(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        kind,
+        record.dice.len(),
+    );
+    let active = spawn_recorded_dice(
         &mut commands,
         &mut meshes,
         &mut materials,
         &record,
         &mappings[0],
         kind,
+        playback_start,
     );
     commands.insert_resource(RecordedReplaySequence {
         kind,
@@ -73,26 +100,60 @@ pub(super) fn setup_recorded_replay(
         mappings,
         index: 0,
         active,
+        playback_start,
+        playback_end,
+        playback_speed,
         terminal_hold_seconds: 0.0,
     });
 }
 
-fn selected_requested_faces(kind: DieKind, case_id: Option<&str>) -> Vec<u8> {
+fn selected_requested_tuples(
+    record: &RecordedBatch,
+    kind: DieKind,
+    case_id: Option<&str>,
+) -> Vec<Vec<u8>> {
+    if record.dice.len() == 4 {
+        return match case_id {
+            None => PHASE3_TUPLES.into_iter().map(Vec::from).collect(),
+            Some(STRONGEST_CONTACT_CASE) => vec![Vec::from(PHASE3_TUPLES[2])],
+            Some(id) => panic!("unknown recorded-replay case `{id}`"),
+        };
+    }
     let (prefix, maximum) = match kind {
         DieKind::D6 => ("d6-recorded-target-", 6),
         DieKind::D20 => ("d20-recorded-target-", 20),
     };
     match case_id {
-        None => (1..=maximum).collect(),
+        None => (1..=maximum).map(|face| vec![face]).collect(),
         Some(id) => {
             let requested = id
                 .strip_prefix(prefix)
                 .and_then(|value| value.parse::<u8>().ok())
                 .filter(|value| (1..=maximum).contains(value))
                 .unwrap_or_else(|| panic!("unknown recorded-replay case `{id}`"));
-            vec![requested]
+            vec![vec![requested]]
         }
     }
+}
+
+fn playback_profile(record: &RecordedBatch, strongest_contact: bool) -> (Duration, Duration, f32) {
+    let final_elapsed = record.fixed_step
+        * u32::try_from(record.dice[0].samples.len().saturating_sub(1))
+            .expect("bounded recorded trajectory");
+    if !strongest_contact {
+        return (Duration::ZERO, final_elapsed, 1.0);
+    }
+    let strongest = record
+        .contacts
+        .strongest_dice_contact
+        .expect("4d6 checkpoint has a strongest dice contact");
+    let contact_elapsed = record.fixed_step * strongest.fixed_step.saturating_sub(1);
+    let context = record.fixed_step * 30;
+    (
+        contact_elapsed.saturating_sub(context),
+        contact_elapsed.saturating_add(context).min(final_elapsed),
+        SLOW_MOTION_SPEED,
+    )
 }
 
 fn spawn_recorded_environment(
@@ -100,6 +161,7 @@ fn spawn_recorded_environment(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     kind: DieKind,
+    die_count: usize,
 ) {
     let tray_material = materials.add(StandardMaterial {
         base_color: DARK_SLATE_GRAY.into(),
@@ -120,9 +182,10 @@ fn spawn_recorded_environment(
         },
         Transform::from_xyz(4.0, 7.0, 4.0),
     ));
-    let camera = match kind {
-        DieKind::D6 => Vec3::new(4.5, 3.5, 6.5),
-        DieKind::D20 => Vec3::new(3.8, 3.0, 5.4),
+    let camera = match (kind, die_count) {
+        (DieKind::D6, 4) => Vec3::new(5.8, 4.8, 7.5),
+        (DieKind::D6, _) => Vec3::new(4.5, 3.5, 6.5),
+        (DieKind::D20, _) => Vec3::new(3.8, 3.0, 5.4),
     };
     commands.spawn((
         Camera3d::default(),
@@ -149,6 +212,31 @@ fn spawn_recorded_walls(
     }
 }
 
+fn spawn_recorded_dice(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    record: &RecordedBatch,
+    presentation: &SemanticPresentationMap,
+    kind: DieKind,
+    playback_start: Duration,
+) -> Vec<Entity> {
+    (0..record.dice.len())
+        .map(|die_index| {
+            spawn_recorded_die(
+                commands,
+                meshes,
+                materials,
+                record,
+                presentation,
+                kind,
+                die_index,
+                playback_start,
+            )
+        })
+        .collect()
+}
+
 fn spawn_recorded_die(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -156,9 +244,11 @@ fn spawn_recorded_die(
     record: &RecordedBatch,
     presentation: &SemanticPresentationMap,
     kind: DieKind,
+    die_index: usize,
+    playback_start: Duration,
 ) -> Entity {
-    let die = &record.dice[0];
-    let first = sample_recorded_transform(&die.samples, record.fixed_step, Duration::ZERO)
+    let die = &record.dice[die_index];
+    let first = sample_recorded_transform(&die.samples, record.fixed_step, playback_start)
         .expect("accepted record has a first sample");
     let die_material = materials.add(StandardMaterial {
         base_color: GOLD.into(),
@@ -190,6 +280,7 @@ fn spawn_recorded_die(
             DieKind::D6 => spawn_d6_visual(
                 root,
                 presentation,
+                die_index,
                 d6_assets.expect("d6 render assets"),
                 die_material,
                 label_material,
@@ -208,11 +299,12 @@ fn spawn_recorded_die(
 fn spawn_d6_visual(
     root: &mut ChildSpawnerCommands,
     presentation: &SemanticPresentationMap,
+    die_index: usize,
     (mesh, pip_mesh): (Handle<Mesh>, Handle<Mesh>),
     die_material: Handle<StandardMaterial>,
     label_material: Handle<StandardMaterial>,
 ) {
-    let mapping = presentation.d6[0];
+    let mapping = presentation.d6[die_index];
     root.spawn((
         NumberedVisual,
         FixedD6Presentation(mapping),
@@ -273,15 +365,17 @@ pub(super) fn advance_recorded_replay_cases(
     mut commands: Commands,
     time: Res<Time>,
     mut sequence: ResMut<RecordedReplaySequence>,
+    mut playback_clock: ResMut<RecordedPlaybackClock>,
     playback: Query<&RecordedTrajectoryPlayback, With<PlaybackRoot>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let Ok(active) = playback.get(sequence.active) else {
-        return;
-    };
-    if !active.complete {
+    if !sequence.active.iter().all(|entity| {
+        playback
+            .get(*entity)
+            .is_ok_and(|playback| playback.complete)
+    }) {
         return;
     }
     sequence.terminal_hold_seconds += time.delta_secs();
@@ -293,16 +387,24 @@ pub(super) fn advance_recorded_replay_cases(
         exit.write(AppExit::Success);
         return;
     }
-    commands.entity(sequence.active).despawn();
+    for entity in sequence.active.drain(..) {
+        commands.entity(entity).despawn();
+    }
     sequence.index += 1;
     sequence.terminal_hold_seconds = 0.0;
-    sequence.active = spawn_recorded_die(
+    playback_clock.configure(
+        sequence.playback_start,
+        sequence.playback_end,
+        sequence.playback_speed,
+    );
+    sequence.active = spawn_recorded_dice(
         &mut commands,
         &mut meshes,
         &mut materials,
         &sequence.record,
         &sequence.mappings[sequence.index],
         sequence.kind,
+        sequence.playback_start,
     );
 }
 
@@ -310,17 +412,36 @@ pub(super) fn update_recorded_replay_window_status(
     sequence: Res<RecordedReplaySequence>,
     mut windows: Query<&mut Window>,
 ) {
-    let mapping = mapping_summary(&sequence.mappings[sequence.index], sequence.kind);
+    let mappings = mapping_summaries(&sequence.mappings[sequence.index], sequence.kind);
     let identity = sequence.mappings[sequence.index].natural_record_identity;
+    let strongest = sequence.record.contacts.strongest_dice_contact;
     for mut window in &mut windows {
         window.title = format!(
-            "Droll Stage 1 - recorded-replay - case {}/{} - requested {} - natural {} - symmetry {} - phase {} - record {identity:016x}",
+            "Droll Stage 1 - recorded-replay - case {}/{} - requested {:?} - natural {:?} - symmetries {:?} - phases {:?} - speed {:.2}x - strongest {:?} - record {identity:016x}",
             sequence.index + 1,
             sequence.mappings.len(),
-            mapping.requested_face,
-            mapping.natural_face,
-            mapping.symmetry_id,
-            mapping.phase_index,
+            mappings
+                .iter()
+                .map(|mapping| mapping.requested_face)
+                .collect::<Vec<_>>(),
+            mappings
+                .iter()
+                .map(|mapping| mapping.natural_face)
+                .collect::<Vec<_>>(),
+            mappings
+                .iter()
+                .map(|mapping| mapping.symmetry_id)
+                .collect::<Vec<_>>(),
+            mappings
+                .iter()
+                .map(|mapping| mapping.phase_index)
+                .collect::<Vec<_>>(),
+            sequence.playback_speed,
+            strongest.map(|sample| (
+                sample.first_ordinal,
+                sample.second_ordinal,
+                sample.fixed_step,
+            )),
         );
     }
 }
@@ -332,52 +453,70 @@ fn log_preparation(
     kind: DieKind,
 ) {
     let accepted = record.attempts.last().expect("accepted attempt");
+    let strongest = record.contacts.strongest_dice_contact;
     info!(
         record_id = format_args!("{:016x}", natural_record_identity(record)),
         base_seed = format_args!("{base_seed:#018x}"),
         accepted_seed = format_args!("{:#018x}", accepted.physical_seed),
         attempts = record.attempts.len(),
-        natural_face = record.dice[0].natural_terminal_face,
+        natural_faces = ?record.dice.iter().map(|die| die.natural_terminal_face).collect::<Vec<_>>(),
         steps = record.calibration.fixed_steps,
-        samples = record.dice[0].samples.len(),
+        samples_per_die = record.dice[0].samples.len(),
         simulated_seconds = record.calibration.simulated_duration.as_secs_f64(),
         wall_milliseconds = record.calibration.wall_clock_duration.as_secs_f64() * 1_000.0,
-        requested_order = ?mappings.iter().map(|map| mapping_summary(map, kind).requested_face).collect::<Vec<_>>(),
+        requested_order = ?mappings.iter().map(|map| mapping_summaries(map, kind).iter().map(|mapping| mapping.requested_face).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        dice_contact_interactions = record.contacts.dice_contact_interactions,
+        dice_contact_steps = record.contacts.dice_contact_samples.len(),
+        strongest_pair = ?strongest.map(|sample| (sample.first_ordinal, sample.second_ordinal)),
+        strongest_step = ?strongest.map(|sample| sample.fixed_step),
+        strongest_seconds = ?strongest.map(|sample| (record.fixed_step * sample.fixed_step).as_secs_f64()),
+        strongest_impulse = ?strongest.map(|sample| sample.normal_impulse),
+        strongest_approach_speed = ?strongest.map(|sample| sample.approach_speed),
         "Target-blind recorded preparation"
     );
-    for mapping in mappings {
-        let mapping = mapping_summary(mapping, kind);
-        info!(
-            requested = mapping.requested_face,
-            natural = mapping.natural_face,
-            symmetry_id = mapping.symmetry_id,
-            phase_index = mapping.phase_index,
-            phase_id = format_args!("{:016x}", mapping.phase_identifier),
-            "Pure semantic presentation mapping"
-        );
+    for (tuple_index, presentation) in mappings.iter().enumerate() {
+        for (ordinal, mapping) in mapping_summaries(presentation, kind).iter().enumerate() {
+            info!(
+                tuple = tuple_index + 1,
+                ordinal,
+                requested = mapping.requested_face,
+                natural = mapping.natural_face,
+                symmetry_id = mapping.symmetry_id,
+                phase_index = mapping.phase_index,
+                phase_id = format_args!("{:016x}", mapping.phase_identifier),
+                "Pure semantic presentation mapping"
+            );
+        }
     }
 }
 
 fn log_case_summary(sequence: &RecordedReplaySequence) {
-    let mapping = mapping_summary(&sequence.mappings[sequence.index], sequence.kind);
-    let final_sample = sequence.record.dice[0]
-        .samples
-        .last()
-        .expect("accepted trajectory has samples");
-    let visible = compose_visible_orientation(
-        Quat::from_array(final_sample.unit_orientation),
-        mapping.symmetry,
-        Quat::IDENTITY,
-    );
+    let mappings = mapping_summaries(&sequence.mappings[sequence.index], sequence.kind);
+    let visible_faces = sequence
+        .record
+        .dice
+        .iter()
+        .zip(&mappings)
+        .map(|(die, mapping)| {
+            let final_sample = die.samples.last().expect("accepted trajectory has samples");
+            let visible = compose_visible_orientation(
+                Quat::from_array(final_sample.unit_orientation),
+                mapping.symmetry,
+                Quat::IDENTITY,
+            );
+            match sequence.kind {
+                DieKind::D6 => d6_geometry().upward_face(visible).value,
+                DieKind::D20 => d20_geometry().upward_face(visible).value,
+            }
+        })
+        .collect::<Vec<_>>();
     info!(
         case = sequence.index + 1,
-        requested = mapping.requested_face,
-        natural = mapping.natural_face,
-        symmetry_id = mapping.symmetry_id,
-        final_visible_face = match sequence.kind {
-            DieKind::D6 => d6_geometry().upward_face(visible).value,
-            DieKind::D20 => d20_geometry().upward_face(visible).value,
-        },
+        requested = ?mappings.iter().map(|mapping| mapping.requested_face).collect::<Vec<_>>(),
+        natural = ?mappings.iter().map(|mapping| mapping.natural_face).collect::<Vec<_>>(),
+        symmetry_ids = ?mappings.iter().map(|mapping| mapping.symmetry_id).collect::<Vec<_>>(),
+        phases = ?mappings.iter().map(|mapping| mapping.phase_index).collect::<Vec<_>>(),
+        final_visible = ?visible_faces,
         record_id = format_args!(
             "{:016x}",
             sequence.mappings[sequence.index].natural_record_identity
@@ -396,29 +535,30 @@ struct MappingSummary {
     phase_identifier: u64,
 }
 
-fn mapping_summary(presentation: &SemanticPresentationMap, kind: DieKind) -> MappingSummary {
+fn mapping_summaries(presentation: &SemanticPresentationMap, kind: DieKind) -> Vec<MappingSummary> {
     match kind {
-        DieKind::D6 => {
-            let mapping = presentation.d6[0];
-            MappingSummary {
+        DieKind::D6 => presentation
+            .d6
+            .iter()
+            .map(|mapping| MappingSummary {
                 natural_face: mapping.natural_face,
                 requested_face: mapping.requested_face,
                 symmetry_id: mapping.symmetry_id,
                 symmetry: mapping.symmetry,
                 phase_index: mapping.phase.index,
                 phase_identifier: mapping.phase.identifier,
-            }
-        }
+            })
+            .collect(),
         DieKind::D20 => {
             let mapping = presentation.d20[0];
-            MappingSummary {
+            vec![MappingSummary {
                 natural_face: mapping.natural_face,
                 requested_face: mapping.requested_face,
                 symmetry_id: mapping.symmetry_id,
                 symmetry: mapping.symmetry,
                 phase_index: mapping.phase.index,
                 phase_identifier: mapping.phase.identifier,
-            }
+            }]
         }
     }
 }
@@ -437,7 +577,7 @@ mod tests {
         kind: DieKind,
         record: RecordedBatch,
         presentation: SemanticPresentationMap,
-        root: Option<Entity>,
+        roots: Vec<Entity>,
     }
 
     fn spawn_replay_fixture(
@@ -446,14 +586,15 @@ mod tests {
         mut materials: ResMut<Assets<StandardMaterial>>,
         mut fixture: ResMut<ReplaySpawnFixture>,
     ) {
-        fixture.root = Some(spawn_recorded_die(
+        fixture.roots = spawn_recorded_dice(
             &mut commands,
             &mut meshes,
             &mut materials,
             &fixture.record,
             &fixture.presentation,
             fixture.kind,
-        ));
+            Duration::ZERO,
+        );
     }
 
     fn replay_fixture_app(
@@ -488,7 +629,7 @@ mod tests {
             kind,
             record,
             presentation,
-            root: None,
+            roots: Vec::new(),
         })
         .add_systems(Startup, spawn_replay_fixture);
         (app, expected_root, expected_presentation)
@@ -555,30 +696,72 @@ mod tests {
 
     #[test]
     fn test_full_checkpoint_uses_deterministic_one_through_six_order() {
+        let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D6],
+            RECORDED_D6_PHYSICAL_SEED,
+        ))
+        .expect("d6 fixture record");
         assert_eq!(
-            selected_requested_faces(DieKind::D6, None),
-            vec![1, 2, 3, 4, 5, 6]
+            selected_requested_tuples(&record, DieKind::D6, None),
+            (1..=6).map(|face| vec![face]).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn test_d20_checkpoint_uses_deterministic_one_through_twenty_order() {
+        let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D20],
+            RECORDED_D20_PHYSICAL_SEED,
+        ))
+        .expect("d20 fixture record");
         assert_eq!(
-            selected_requested_faces(DieKind::D20, None),
-            (1..=20).collect::<Vec<_>>()
+            selected_requested_tuples(&record, DieKind::D20, None),
+            (1..=20).map(|face| vec![face]).collect::<Vec<_>>()
         );
     }
 
     #[test]
     fn test_single_recorded_replay_case_selects_only_requested_mapping() {
+        let d6 = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D6],
+            RECORDED_D6_PHYSICAL_SEED,
+        ))
+        .expect("d6 fixture record");
+        let d20 = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D20],
+            RECORDED_D20_PHYSICAL_SEED,
+        ))
+        .expect("d20 fixture record");
         assert_eq!(
-            selected_requested_faces(DieKind::D6, Some("d6-recorded-target-4")),
-            vec![4]
+            selected_requested_tuples(&d6, DieKind::D6, Some("d6-recorded-target-4")),
+            vec![vec![4]]
         );
         assert_eq!(
-            selected_requested_faces(DieKind::D20, Some("d20-recorded-target-19")),
-            vec![19]
+            selected_requested_tuples(&d20, DieKind::D20, Some("d20-recorded-target-19")),
+            vec![vec![19]]
         );
+    }
+
+    #[test]
+    fn test_4d6_checkpoint_and_slow_motion_use_one_deterministic_record() {
+        let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D6; 4],
+            RECORDED_4D6_PHYSICAL_SEED,
+        ))
+        .expect("4d6 fixture record");
+        assert_eq!(
+            selected_requested_tuples(&record, DieKind::D6, None),
+            PHASE3_TUPLES.map(Vec::from).to_vec()
+        );
+        assert_eq!(
+            selected_requested_tuples(&record, DieKind::D6, Some(STRONGEST_CONTACT_CASE)),
+            vec![Vec::from(PHASE3_TUPLES[2])]
+        );
+        let (start, end, speed) = playback_profile(&record, true);
+        let strongest = record.contacts.strongest_dice_contact.unwrap();
+        let contact_elapsed = record.fixed_step * strongest.fixed_step.saturating_sub(1);
+        assert!(start <= contact_elapsed && contact_elapsed <= end);
+        assert_eq!(speed, SLOW_MOTION_SPEED);
     }
 
     #[test]
@@ -587,7 +770,7 @@ mod tests {
             replay_fixture_app(DieKind::D6, RECORDED_D6_PHYSICAL_SEED, 4);
         app.update();
         let world = app.world();
-        let root = world.resource::<ReplaySpawnFixture>().root.unwrap();
+        let root = world.resource::<ReplaySpawnFixture>().roots[0];
         let visual = assert_playback_root(world, root, &expected_root);
         let geometry =
             assert_numbered_visual(world, visual, FixedD6Presentation(presentation.d6[0]));
@@ -600,10 +783,60 @@ mod tests {
             replay_fixture_app(DieKind::D20, RECORDED_D20_PHYSICAL_SEED, 19);
         app.update();
         let world = app.world();
-        let root = world.resource::<ReplaySpawnFixture>().root.unwrap();
+        let root = world.resource::<ReplaySpawnFixture>().roots[0];
         let visual = assert_playback_root(world, root, &expected_root);
         let geometry =
             assert_d20_numbered_visual(world, visual, FixedD20Presentation(presentation.d20[0]));
         assert_eq!(geometry.len(), 1 + d20_labels().len());
+    }
+
+    #[test]
+    fn test_4d6_replay_spawns_four_complete_concurrent_hierarchies() {
+        let record = prepare_recorded_batch(&PhysicalBatchRequest::new(
+            vec![DieKind::D6; 4],
+            RECORDED_4D6_PHYSICAL_SEED,
+        ))
+        .expect("4d6 fixture record");
+        let presentation = SemanticPresentationMap::for_d6_tuple(&record, &PHASE3_TUPLES[2])
+            .expect("4d6 fixture mapping");
+        let expected = record
+            .dice
+            .iter()
+            .map(|die| {
+                let first =
+                    sample_recorded_transform(&die.samples, record.fixed_step, Duration::ZERO)
+                        .expect("fixture first sample");
+                Transform::from_translation(first.world_position)
+                    .with_rotation(first.recorded_orientation)
+            })
+            .collect::<Vec<_>>();
+        let mappings = presentation.d6.clone();
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            TransformPlugin,
+            VisibilityPlugin,
+        ))
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+        .init_resource::<Assets<StandardMaterial>>()
+        .insert_resource(ReplaySpawnFixture {
+            kind: DieKind::D6,
+            record,
+            presentation,
+            roots: Vec::new(),
+        })
+        .add_systems(Startup, spawn_replay_fixture);
+        app.update();
+        let world = app.world();
+        let roots = &world.resource::<ReplaySpawnFixture>().roots;
+        assert_eq!(roots.len(), 4);
+        for (index, root) in roots.iter().copied().enumerate() {
+            let visual = assert_playback_root(world, root, &expected[index]);
+            let geometry =
+                assert_numbered_visual(world, visual, FixedD6Presentation(mappings[index]));
+            assert_visible_geometry(world, &geometry);
+        }
     }
 }

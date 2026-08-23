@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use droll_gui::spike::SpikeMode;
+use droll_gui::spike::{SpikeMode, SpikeScenario};
 
 #[test]
 fn test_recorded_replay_mode_is_explicitly_named() {
@@ -12,8 +12,18 @@ fn test_recorded_replay_mode_is_explicitly_named() {
 }
 
 #[test]
+fn test_phase3_scenario_is_explicitly_named_4d6() {
+    assert_eq!(SpikeScenario::from_str("4d6"), Ok(SpikeScenario::FourD6));
+    assert!(SpikeScenario::from_str("multi-d6").is_err());
+}
+
+#[test]
 fn test_recorded_replay_harness_prepares_once_without_visible_physics() {
     let harness = include_str!("../src/spike/recorded_replay.rs");
+    let production = harness
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production harness source");
     for forbidden in ["PhysicsPlugins", "RigidBody", "Collider", "PhysicsSchedule"] {
         assert!(
             !harness.contains(forbidden),
@@ -21,7 +31,7 @@ fn test_recorded_replay_harness_prepares_once_without_visible_physics() {
         );
     }
     assert_eq!(
-        harness
+        production
             .matches("prepare_recorded_batch(&PhysicalBatchRequest")
             .count(),
         1,

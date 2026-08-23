@@ -39,7 +39,7 @@ impl FromStr for SpikeMode {
 pub enum SpikeScenario {
     D6Faces,
     D20Faces,
-    MultiD6,
+    FourD6,
     KeepDrop,
     Recovery,
 }
@@ -50,7 +50,7 @@ impl SpikeScenario {
         match self {
             Self::D6Faces => "d6-faces",
             Self::D20Faces => "d20-faces",
-            Self::MultiD6 => "multi-d6",
+            Self::FourD6 => "4d6",
             Self::KeepDrop => "keep-drop",
             Self::Recovery => "recovery",
         }
@@ -87,7 +87,7 @@ impl FromStr for SpikeScenario {
         match value {
             "d6-faces" => Ok(Self::D6Faces),
             "d20-faces" => Ok(Self::D20Faces),
-            "multi-d6" => Ok(Self::MultiD6),
+            "4d6" => Ok(Self::FourD6),
             "keep-drop" => Ok(Self::KeepDrop),
             "recovery" => Ok(Self::Recovery),
             _ => Err(format!("unknown Stage 1 scenario `{value}`")),
