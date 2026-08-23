@@ -49,7 +49,7 @@ fn test_recorded_replay_harness_prepares_once_without_visible_physics() {
     }
     assert_eq!(
         production
-            .matches("prepare_recorded_batch(&request)")
+            .matches("prepare_recorded_batch(request)")
             .count(),
         1,
         "full checkpoint must prepare physics exactly once"

@@ -12,7 +12,7 @@ use crate::{
     dice::{D20Label, d6_geometry, d6_labels, d6_mesh, d20_geometry, d20_labels, d20_mesh},
     physics::{
         DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual, PhysicalBatchRequest,
-        PhysicalTray, PlaybackRoot, RecordedBatch, RecordedPlaybackClock,
+        PhysicalTray, PlaybackRoot, PreparationFailure, RecordedBatch, RecordedPlaybackClock,
         RecordedTrajectoryPlayback, SemanticPresentationMap, compose_visible_orientation,
         natural_record_identity, prepare_recorded_batch, sample_recorded_transform,
     },
@@ -48,20 +48,36 @@ pub(super) struct RecordedReplaySequence {
     terminal_hold_seconds: f32,
 }
 
+#[derive(Resource, Clone, Debug, PartialEq)]
+struct Mixed50ExhaustionDiagnostic {
+    physical_seed: u64,
+    failure: PreparationFailure,
+}
+
+enum RecordedReplayPreparation {
+    Replay(Box<RecordedBatch>),
+    PermittedMixed50Exhaustion(PreparationFailure),
+    BlockingFailure(PreparationFailure),
+}
+
 pub(super) fn setup_recorded_replay(
     mut commands: Commands,
     options: Res<SpikeOptions>,
     mut playback_clock: ResMut<RecordedPlaybackClock>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     let (request, physical_seed) = recorded_request(options.scenario);
-    let record = Arc::new(prepare_recorded_batch(&request).unwrap_or_else(|failure| {
-        panic!(
-            "recorded-replay hidden preparation exhausted: {:?}",
-            failure.attempts
-        )
-    }));
+    let Some(record) = prepare_replay_record(
+        options.scenario,
+        &request,
+        physical_seed,
+        &mut commands,
+        &mut exit,
+    ) else {
+        return;
+    };
     let requested_tuples =
         selected_requested_tuples(&record, options.scenario, options.case_id.as_deref());
     let mappings = requested_tuples
@@ -106,6 +122,63 @@ pub(super) fn setup_recorded_replay(
         playback_speed,
         terminal_hold_seconds: 0.0,
     });
+}
+
+fn prepare_replay_record(
+    scenario: SpikeScenario,
+    request: &PhysicalBatchRequest,
+    physical_seed: u64,
+    commands: &mut Commands,
+    exit: &mut MessageWriter<AppExit>,
+) -> Option<Arc<RecordedBatch>> {
+    match classify_preparation(scenario, prepare_recorded_batch(request)) {
+        RecordedReplayPreparation::Replay(record) => Some(Arc::from(record)),
+        RecordedReplayPreparation::PermittedMixed50Exhaustion(failure) => {
+            log_mixed50_exhaustion(physical_seed, &failure);
+            commands.insert_resource(Mixed50ExhaustionDiagnostic {
+                physical_seed,
+                failure,
+            });
+            exit.write(AppExit::Success);
+            None
+        }
+        RecordedReplayPreparation::BlockingFailure(failure) => {
+            panic!(
+                "recorded-replay hidden preparation exhausted: {:?}",
+                failure.attempts
+            )
+        }
+    }
+}
+
+fn classify_preparation(
+    scenario: SpikeScenario,
+    preparation: Result<RecordedBatch, PreparationFailure>,
+) -> RecordedReplayPreparation {
+    match preparation {
+        Ok(record) => RecordedReplayPreparation::Replay(Box::new(record)),
+        Err(failure) if scenario == SpikeScenario::Mixed50 => {
+            RecordedReplayPreparation::PermittedMixed50Exhaustion(failure)
+        }
+        Err(failure) => RecordedReplayPreparation::BlockingFailure(failure),
+    }
+}
+
+fn log_mixed50_exhaustion(physical_seed: u64, failure: &PreparationFailure) {
+    let rejection_reasons = failure
+        .attempts
+        .iter()
+        .map(|attempt| attempt.outcome)
+        .collect::<Vec<_>>();
+    warn!(
+        scenario = "mixed50",
+        base_seed = format_args!("{physical_seed:#018x}"),
+        attempt_count = failure.attempts.len(),
+        attempt_diagnostics = ?failure.attempts,
+        rejection_reasons = ?rejection_reasons,
+        replayable_record = false,
+        "50-die diagnostic exhausted its bounded attempts and produced no replayable record"
+    );
 }
 
 fn recorded_request(scenario: SpikeScenario) -> (PhysicalBatchRequest, u64) {
@@ -468,13 +541,16 @@ fn d20_label_mesh(label: &D20Label) -> Mesh {
 pub(super) fn advance_recorded_replay_cases(
     mut commands: Commands,
     time: Res<Time>,
-    mut sequence: ResMut<RecordedReplaySequence>,
+    sequence: Option<ResMut<RecordedReplaySequence>>,
     mut playback_clock: ResMut<RecordedPlaybackClock>,
     playback: Query<&RecordedTrajectoryPlayback, With<PlaybackRoot>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let Some(mut sequence) = sequence else {
+        return;
+    };
     if !sequence.active.iter().all(|entity| {
         playback
             .get(*entity)
@@ -512,9 +588,12 @@ pub(super) fn advance_recorded_replay_cases(
 }
 
 pub(super) fn update_recorded_replay_window_status(
-    sequence: Res<RecordedReplaySequence>,
+    sequence: Option<Res<RecordedReplaySequence>>,
     mut windows: Query<&mut Window>,
 ) {
+    let Some(sequence) = sequence else {
+        return;
+    };
     let mappings = mapping_summaries(&sequence.mappings[sequence.index], &sequence.record);
     let identity = sequence.mappings[sequence.index].natural_record_identity;
     let strongest = sequence.record.contacts.strongest_dice_contact;
@@ -742,7 +821,16 @@ mod tests {
         mesh::skinning::SkinnedMeshInverseBindposes, transform::TransformPlugin,
     };
 
+    use crate::physics::AttemptOutcome;
+
     use super::*;
+
+    #[derive(Resource, Default)]
+    struct ExitCapture(Vec<AppExit>);
+
+    fn capture_app_exit(mut exits: MessageReader<AppExit>, mut capture: ResMut<ExitCapture>) {
+        capture.0.extend(exits.read().cloned());
+    }
 
     #[derive(Resource)]
     struct ReplaySpawnFixture {
@@ -894,6 +982,93 @@ mod tests {
             assert!(entity.contains::<Mesh3d>());
             assert!(entity.get::<InheritedVisibility>().unwrap().get());
             assert!(entity.contains::<ViewVisibility>());
+        }
+    }
+
+    #[test]
+    fn test_mixed50_exhaustion_reports_all_attempts_and_exits_without_playback() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<SkinnedMeshInverseBindposes>>()
+            .init_resource::<Assets<StandardMaterial>>()
+            .init_resource::<RecordedPlaybackClock>()
+            .init_resource::<ExitCapture>()
+            .insert_resource(SpikeOptions {
+                scenario: SpikeScenario::Mixed50,
+                case_id: None,
+                mode: super::super::SpikeMode::RecordedReplay,
+            })
+            .add_systems(Startup, (setup_recorded_replay, capture_app_exit).chain())
+            .add_systems(
+                Update,
+                (
+                    advance_recorded_replay_cases,
+                    update_recorded_replay_window_status,
+                ),
+            );
+
+        app.update();
+
+        let diagnostic = app.world().resource::<Mixed50ExhaustionDiagnostic>();
+        assert_eq!(diagnostic.physical_seed, RECORDED_MIXED50_PHYSICAL_SEED);
+        assert_eq!(diagnostic.failure.attempts.len(), 3);
+        assert!(diagnostic.failure.attempts.iter().all(|attempt| {
+            attempt.die_count == 50 && matches!(attempt.outcome, AttemptOutcome::Invalid(_))
+        }));
+        assert_eq!(app.world().resource::<ExitCapture>().0, [AppExit::Success]);
+        assert!(!app.world().contains_resource::<RecordedReplaySequence>());
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<PlaybackRoot>>()
+                .iter(world)
+                .count(),
+            0
+        );
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<NumberedVisual>>()
+                .iter(world)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_normal_scenario_exhaustion_remains_blocking() {
+        for scenario in [
+            SpikeScenario::D6Faces,
+            SpikeScenario::D20Faces,
+            SpikeScenario::FourD6,
+            SpikeScenario::Mixed10,
+            SpikeScenario::Mixed20,
+        ] {
+            let failure = PreparationFailure {
+                attempts: Vec::new(),
+            };
+            assert!(matches!(
+                classify_preparation(scenario, Err(failure)),
+                RecordedReplayPreparation::BlockingFailure(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn test_mixed10_and_mixed20_successful_preparations_remain_replayable() {
+        for scenario in [SpikeScenario::Mixed10, SpikeScenario::Mixed20] {
+            let (request, _) = recorded_request(scenario);
+            let RecordedReplayPreparation::Replay(record) =
+                classify_preparation(scenario, prepare_recorded_batch(&request))
+            else {
+                panic!("normal mixed scenario must produce a replayable record");
+            };
+            let requested = selected_requested_tuples(&record, scenario, None);
+            assert!(!requested.is_empty());
+            assert!(
+                SemanticPresentationMap::for_mixed_tuple(&record, &requested[0]).is_ok(),
+                "normal mixed setup must still create its presentation mapping"
+            );
         }
     }
 
