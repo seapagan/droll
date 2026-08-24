@@ -1,0 +1,564 @@
+# Stage 1 directed-physics evidence
+
+## Status and owner verdicts
+
+Candidate B and Candidate D were owner-rejected. The subsequent d6 H1 candidate
+passed its corrected automated gate and Linux/Windows visual gate, after which
+the owner voluntarily retired H1 as the active Stage 1 candidate without
+declaring it physically disproven. Recorded-physics replay is now the owner-
+ratified Stage 1 replacement candidate, but no recorded-physics implementation
+evidence exists yet and Stage 1 has no GO.
+
+The owner reviewed
+`review-candidate-b` at `b8fa6173147099a8bc4f531aac62376f4c65be68` and
+recorded **FAIL / rejected** on 2026-08-21. Its 18/18 systemic result remains
+historical evidence, but the real-window motion showed an effectively settled
+die being rotated toward a predetermined face strongly enough to become
+`RenewedMotion`/`Bouncing`. The render mesh also culled its exterior faces
+because its triangle winding opposed its stored outward normals.
+
+The owner also reviewed `review-candidate-d` at
+`5faf74f5202eb0ed32e47c3a37080afe6683c247` and recorded **FAIL / rejected** on
+2026-08-21. Candidate D's 18/18 systemic result does not override the repeated
+visibly targeted recovery-hop behavior: 15 of 18 ordinary d6 cases required
+recovery, with 18 recoveries in total and three cases requiring two. Recovery
+was therefore the normal outcome-selection mechanism, not an exceptional
+pathology path.
+
+The late-guided-settling/recovery architecture is rejected. The approved
+replacement hypothesis was H1 symmetry-conditioned launch families: only the
+initial proper body-local solid symmetry may depend on the target, and all
+post-spawn motion and settling must be unassisted. The bounded H1 implementation
+at `623986844597b96f306c87c5dfa83f1c7689c67e` achieved 216/216 correct
+unassisted faces but **failed the then-ratified complete-trajectory paired
+physical-equivalence gate**. That mandatory STOP remains part of the experiment
+history. The preserved pair was equivalent before contact and diverged only
+after contact.
+
+The owner subsequently corrected the H1 contract: paired pre-contact physical
+equivalence remains blocking, while numerical divergence at and after contact
+is diagnostic unless it causes an actual H1 defect. The corrected test boundary
+at `d185919` passes all 216 paired cases without changing the prior tolerances,
+and the independent all-face corpus remains 216/216 with zero recovery or
+intervention. The owner reviewed the resulting Linux candidate at
+`1b20d531dcaf04198e068e69ba84382bff87a0f8` and recorded **PASS** on
+2026-08-21. That SHA is now the frozen H1 d6 behavior candidate for native
+cross-platform validation. The same frozen behavior subsequently passed native
+runtime/visual review on real Windows x86_64 hardware and visually matched the
+approved Linux behavior. Native hosted CI/systemic validation remains green on
+Linux x86_64, Windows x86_64, macOS Intel, and macOS Apple Silicon.
+
+The owner explicitly accepted those Linux and Windows manual passes plus the
+all-platform native systemic evidence as sufficient for the H1 d6 gate. macOS
+manual runtime/visual evidence is non-blocking only for Stage 1 and is deferred
+to pre-release real-hardware validation. The owner later voluntarily retired H1
+as the active candidate and selected recorded-physics replay. This product-
+architecture choice does not invalidate the successful d6 evidence or declare
+H1 physically disproven, and it is not Stage 1 GO.
+
+## Candidate provenance and fixed configuration
+
+- Stage 1 baseline: `d3454b0cc3c969e87a7d46f139554d290c68ee8c`.
+- Rejected Candidate B: `b8fa6173147099a8bc4f531aac62376f4c65be68`.
+- Winding remediation: `fabc603`.
+- Candidate D behavior/configuration:
+  `5faf74f5202eb0ed32e47c3a37080afe6683c247`.
+- Frozen H1 d6 behavior candidate:
+  `1b20d531dcaf04198e068e69ba84382bff87a0f8`.
+- This owner-decision update is documentation-only. It does not change the
+  frozen candidate's executable behavior, configuration, dependency graph, or
+  validation corpus.
+- Rust 1.97.1; MSRV 1.95.0; Bevy 0.19.1; Avian3D 0.7.0 with `3d`, `f32`, and
+  `parry-f32` only. Avian parallel remains disabled.
+
+Candidate D keeps dynamic Avian rigid bodies and uses these measured bounds:
+
+- low-energy decision: tray contact, height at most 0.9, linear speed at most
+  0.25, and angular speed at most 0.35;
+- guidance capture: target is already the current upward face and target error
+  is at most 0.019635 rad (1.125 degrees);
+- guidance: acceleration-domain P/D values 4.0/2.5, 0.35 s ramp, and a hard
+  0.05 rad/s2 angular-acceleration limit converted to torque using Avian's
+  computed world-space inertia tensor;
+- disturbance: contact loss, 0.65 linear speed, or 1.0 angular speed;
+- completion: 0.10 rad orientation tolerance, 0.10/0.16 rest speeds, and an
+  uninterrupted 0.60 s stable window;
+- recovery: measured-state entry, one impulse per recovery, 2.6 m/s desired
+  upward speed, target-error rotation over the derived ballistic flight time,
+  6.0 rad/s angular-speed limit, 0.8 rad/s yaw, 1.2 s contact timeout, three
+  attempts, and the existing 18 s product timeout.
+
+The generated d6 now winds every rendered triangle into the same outward
+hemisphere as its declared face normal. Mesh-level tests inspect all 12 render
+triangles for non-degeneracy and outward winding; culling remains enabled.
+
+## Capture-region derivation
+
+The d6's minimum face-center-to-adjacent-face support boundary is pi/4. The
+bounded capture sweep tested pi/80 (0.009817 rad), pi/40 (0.019635 rad), and
+pi/20 (0.039270 rad), all far inside that 45-degree face-changing boundary.
+The first native release run showed `d6-5-awkward-low-energy` naturally reach
+the correct upward face at 0.010590 rad. That was just outside pi/80 and caused
+an unnecessary recovery. Pi/40 captured it without recovery while limiting
+ordinary guidance to 1.125 degrees, so pi/40 is Candidate D's selected bound.
+
+The selected headless corpus entered guidance at 0.0-0.002003 rad, 0.0757-
+0.2350 linear speed, 0.0173-0.2745 angular speed, and at most 0.028483 units of
+kinetic energy. Candidate D therefore has measured margin for fixed-step/native
+timing variation without approaching a face boundary.
+
+## Mass/inertia-aware guidance evidence
+
+The Avian 0.7 body reports mass 1.0 and principal inertia 0.166667 for the
+project-owned unit d6 collider. Candidate D computes desired angular
+acceleration, removes yaw from damping, clamps acceleration, converts it with
+the rotated `ComputedAngularInertia` tensor, and applies the resulting torque
+through `Forces`. It does not multiply raw orientation error into unconstrained
+torque.
+
+Across the selected headless corpus:
+
+- maximum applied guidance angular acceleration was 0.013762 rad/s2 against
+  the 0.05 limit;
+- maximum applied torque was 0.002294 N m against the inertia-derived 0.008334
+  N m ceiling;
+- maximum guided linear/angular speeds were 0.1651/0.1959, below the
+  0.65/1.0 disturbance thresholds; and
+- no headless guidance interval produced `RenewedMotion`.
+
+The native release corpus had measured rest-candidate invalidations in
+`d6-5-awkward-low-energy` and `d6-6-side-spin`; both remained inside the target
+face capture region and returned to rest without recovery. Candidate D never
+uses ordinary guidance for a substantially wrong face. If target-up or the
+capture bound is lost, force application is suppressed and the lifecycle
+selects bouncing or physical recovery.
+
+## Recovery design and evidence
+
+`DirectedDie::require_recovery` was removed. Recovery scenarios now supply only
+physical initial state; the same production observation path selects recovery
+for normal and recovery corpora. `recovery-bad-orientation` requires one
+recovery, while `recovery-edge` settles naturally with zero, which would fail
+if scenario identity controlled production recovery.
+
+When motion becomes low-energy outside capture, recovery starts immediately
+from that observation. A mass-scaled upward impulse and an inertia-scaled
+angular impulse reintroduce real kinetic energy. The angular target is a
+bounded velocity over the 2v/g ballistic flight estimate; orientation is never
+written. Recovery ends on measured leave-and-return tray contact, with a finite
+timeout fallback. Each recovery applies exactly one impulse.
+
+The selected headless d6 corpus used 18 recoveries: three cases used none,
+twelve used one, and three used two. Maximum recovery impulses were 2.633
+linear and 0.998 angular; recovery-entry energy was at most 0.024098. The
+recovery rotation sweep rejected 0.8x (19 total, maximum three) and 1.2x
+(19 total, maximum two) in favor of the geometry/flight-time-derived 1.0x
+(18 total, maximum two). The selected 2.6 m/s upward speed implies about
+0.344 m of ideal ballistic rise, smaller than the 2.8 and 3.0 m/s candidates.
+
+## Contact classification
+
+Tray floors and walls carry a dedicated `TraySurface` marker. A die has tray
+contact only when `CollidingEntities` contains a marked entity. An unmarked
+collider no longer enables first contact, guidance, rest, or recovery decisions;
+the focused regression adds the marker live and proves the distinction. This
+keeps future die-on-die contact from masquerading as independent tray contact
+without implementing multi-die behavior.
+
+## Baseline and bounded candidate results
+
+Unguided runs retained natural final faces rather than their targets: the three
+start families ended on faces 6, 3, and 5. Energetic peaks were 6.0493-7.0550
+linear and 9.6531-10.7233 angular for high-tumble/side-spin, versus guidance
+entry below 0.2350/0.2745 for Candidate D. The motion states remain separable.
+
+| Configuration | Capture / accel / recovery up | d6 result | Recovery total/max | Max completion | Disposition |
+|---|---:|---:|---:|---:|---|
+| Candidate B | unrestricted / raw P-D / 1.8 impulse | 18/18 | 0/0 headless | 6.203 s | **Owner rejected**: late face-changing guidance |
+| Narrow | pi/80 / 0.05 / 2.6 | 18/18 | 18/2 | 3.828 s | Rejected after native timing caused an unnecessary hop |
+| Candidate D | pi/40 / 0.05 / 2.6 | 18/18 | 18/2 | 3.828 s | **Owner rejected**: repeated targeted recovery hops |
+| Broad/high | pi/20 / 0.20 / 3.0 | 18/18 | 18/2 | 4.188 s | Rejected: larger correction/energy without systemic benefit |
+
+Candidate D headless results are 18/18 correct, with no wrong-face reveal,
+failure, timeout, or recovery-budget exhaustion. Completion was 1.609-3.828 s.
+The final Linux release-window corpus also completed 18/18 correctly; its
+longest case was `d6-1-high-tumble` at 4.078 s. Release recovery support
+completed `recovery-bad-orientation` correctly after one recovery in 1.609 s
+and `recovery-edge` naturally in 1.250 s.
+
+Per-case fixed-step rows, including the preserved rejected Candidate B rows,
+are in `stage-1-directed-physics-metrics.csv` in deterministic face/start
+order.
+
+## Candidate D visual failure cases
+
+- Two recoveries: `d6-1-high-tumble`, `d6-2-awkward-low-energy`, and
+  `d6-4-side-spin`.
+- Correct-face nudge without recovery: `d6-5-awkward-low-energy`.
+- Rest-candidate re-entry: `d6-6-side-spin`.
+- Deliberate production-selected recovery: `recovery-bad-orientation`.
+- Natural no-recovery control: `recovery-edge`.
+
+The repeated recovery hops were visibly targeted and failed the owner review.
+Their systemic correctness cannot waive that result. These case IDs remain as
+reproducers and negative evidence for the rejected architecture.
+
+## H1 symmetry-conditioned d6 experiment
+
+### Pure symmetry premise
+
+The project-owned d6 implementation enumerates all 24 proper cube rotations.
+Focused tests prove determinant +1, cube-vertex preservation, face-normal
+bijection, opposite-face preservation, every ordered target/base mapping,
+collider mass/center/inertia equivalence, and exclusion of render-only pips from
+collider mass properties. A non-commuting quaternion probe verifies the live
+Bevy/glam multiplication convention. Every nominal and orientation-nuisance
+case constructs `Q_variant = P * Q_base` before right-composing the local
+symmetry as `Q_target = Q_variant * S`.
+
+### Bounded launch-family search
+
+The search grid contained exactly 64 target-independent combinations: 16 in
+each of four energetic regions. It stopped after considering five combinations
+because one passing family had been found in every region. No search state,
+velocity, nuisance, or family selection used a target face.
+
+| Result | Search ID | Runtime family | Natural face | Reason |
+|---|---|---|---:|---|
+| Rejected | `search-00-high-tumble` | — | 5 nominal | +1% angular nuisance changed face 5 to 4 |
+| Accepted | `search-01-high-tumble` | `h1-family-a` | 6 | 9/9 nominal/nuisance states retained face 6 |
+| Accepted | `search-16-side-spin` | `h1-family-b` | 3 | 9/9 retained face 3 |
+| Accepted | `search-32-overhead-tumble` | `h1-family-c` | 1 | 9/9 retained face 1 |
+| Accepted | `search-48-diagonal-spin` | `h1-family-d` | 3 | 9/9 retained face 3 |
+
+The preregistered nuisance IDs were used unchanged: nominal, world X position
+plus/minus 0.01 m, world `(1,1,0)` orientation plus/minus 0.5 degrees, linear
+velocity times 1.01/0.99, and angular velocity times 1.01/0.99. Accepted-family
+first tray contact was 0.633-0.817 s; natural completion was 1.817-2.917 s;
+peak linear speed was 5.7583-7.5031; and peak angular speed was 8.8834-12.0201.
+All accepted states had meaningful airborne/tumbling motion and tray contact.
+
+### H1 lifecycle and all-face corpus
+
+Mode `symmetry-launch` uses the isolated lifecycle
+`Spawned -> FreeThrow -> Bouncing -> RestCandidate -> Revealed/Failed`.
+Its plugin has no force/torque writer and no guidance, recovery, retry,
+post-spawn transform write, or kinematic path. Target-independent position,
+linear velocity, angular velocity, and nuisance state are applied unchanged;
+only the selected initial proper body-local symmetry varies by target. Unknown
+mode values exit explicitly rather than falling back to Candidate D.
+
+All four families completed all six targets across nominal plus eight nuisance
+states: **216/216 correct faces**, zero timeout, zero wrong face, zero recovery,
+and exactly zero recorded post-spawn target-aware force, torque, work, or
+intervention. Maximum completion was 1.969 s for family A, 2.234 s for family B,
+3.016 s for family C, and 2.406 s for family D. Group summaries remain in the
+CSV; raw per-step traces remain untracked build evidence.
+
+### Initial complete-trajectory paired-equivalence STOP
+
+The paired test runs a target-independent geometric control and canonicalizes
+the target orientation as:
+
+```text
+Q_canonical(t) = normalize(Q_target(t) * inverse(S))
+```
+
+The same-build tolerances were 0.01 m world position, 0.02 m/s linear velocity,
+0.02 rad/s angular velocity, 0.01 rad sign-invariant canonical orientation,
+and one fixed update for completion classification. These are deliberately much
+larger than pure `f32` geometry error while remaining small relative to the
+one-metre die and 5.76-7.50 / 8.88-12.02 energetic speed ranges.
+
+The first paired nominal comparison, `h1-family-a`, target 1 versus its
+target-independent control, diverged after contact. Linear velocity first
+exceeded tolerance at trace step 47. Across the paired trace, maximum deltas
+were:
+
+- world position: 0.01532233 m;
+- linear velocity: 0.22150882 m/s;
+- angular velocity: 0.61894333 rad/s;
+- canonical orientation: 0.02007314 rad; and
+- completion: 107 versus 106 trace samples, one fixed update apart.
+
+Contact counts remained paired through the compared trace and both runs reached
+the correct face, but the physical-field deltas materially exceeded every
+then-blocking complete-trace numeric tolerance. The original test stopped
+before checking later target pairs. Under the contract ratified at that time,
+this was a mandatory **STOP / PAIRED-TRAJECTORY DIVERGENCE** before Linux visual
+review. The implementation and negative evidence were preserved. The later
+contract correction does not erase, rename, or reinterpret that original STOP.
+
+### Corrected pre-contact gate rerun
+
+Commit `d185919` splits each paired trace at the first physical tray contact in
+either run. Position, linear velocity, angular velocity, and sign-invariant
+canonical orientation remain blocking before that boundary with the unchanged
+0.01 m, 0.02 m/s, 0.02 rad/s, and 0.01 rad tolerances. The existing pure
+composition-order regression remains blocking, and an additional regression
+proves that target-dependent initial linear velocity fails the pre-contact
+gate.
+
+All 216/216 paired cases passed the corrected pre-contact gate. Across them,
+first contact occurred at trace steps 37-48. Maximum pre-contact deltas were:
+
+- world position: 0.000000363 m;
+- linear velocity: 0.0 m/s;
+- angular velocity: 0.000275784 rad/s; and
+- canonical orientation: 0.00119604 rad.
+
+Post-contact measurements remain present for every pair. Of 216 comparisons,
+180 crossed at least one former complete-trace numeric/lifecycle/contact
+threshold and 36 did not. First recorded diagnostic divergence was at trace
+steps 51-122, always after the paired first-contact boundary. Bounded maxima
+across the post-contact paired traces were 0.126389 m position, 1.693292 m/s
+linear velocity, 4.861898 rad/s angular velocity, 0.325243 rad canonical
+orientation, and 0.328125 s completion-time difference. Tray contact-count
+transitions, completion differences, and both final physical faces remain in
+the per-pair test diagnostics.
+
+The previously preserved `h1-family-a`, nominal target-1 comparison remains
+equivalent through first contact at step 46 and first crosses a former strict
+threshold at step 51. Its maximum post-contact deltas remain 0.01532233 m,
+0.22150882 m/s, 0.61894333 rad/s, and 0.02007314 rad, with a 0.015625 s
+completion difference. The control finishes on its natural face 6 and the
+mapped run finishes on requested face 1.
+
+The separately rerun nominal+nuisance outcome corpus remains **216/216 correct
+faces**, with zero timeout, wrong face, recovery, retry, or post-spawn
+target-aware force, torque, work, transform correction, or other intervention.
+Completion was 1.719-3.016 s; family maxima remained 1.969 s (A), 2.234 s (B),
+3.016 s (C), and 2.406 s (D). Peak corpus linear/angular speeds were
+7.5031/11.4011. The family search was not rerun or expanded to replace any
+family.
+
+Corrected automated H1 verdict: **PASS**. This result establishes the blocking
+pre-contact and systemic gates; post-contact numerical divergence remains a
+recorded diagnostic rather than an independent failure.
+
+### Frozen H1 candidate and Linux visual approval
+
+The owner reviewed the release-window presentation at behavior candidate
+`1b20d531dcaf04198e068e69ba84382bff87a0f8` and recorded **Linux H1 visual
+checkpoint: PASS** on 2026-08-21. The review covered the predetermined
+family-major sequence `h1-family-a` through `h1-family-d`, with requested
+targets 1 through 6 within each family: 24 nominal cases in total.
+
+The owner found no obvious result-directed push, flip, hop, correction, or
+face-specific manipulation signature. Launch, collision, bounce, energy decay,
+and settling read as one continuous physical event. The preserved
+`h1-family-a` target-1 post-contact divergence looked visually ordinary,
+Family C's longer settling tail remained natural, and the four-family variation
+was sufficient for this Linux feasibility gate. The release-window completion
+range was 1.890625-2.718750 s, with zero recovery.
+
+At the frozen candidate, the Linux focused symmetry/search suite passed 13/13,
+the blocking paired pre-contact gate passed 216/216, and the independent corpus
+passed 216/216. Timeout, wrong-face, recovery/retry, and post-spawn target-aware
+force, torque, mechanical work, transform correction, or other intervention
+were all zero. The GUI scaffold (1/1), CLI boundary (6/6),
+`cargo make verify-native`, `cargo make verify-xwin`, `cargo make verify`,
+`cargo make msrv`, and `git diff --check` all passed. The detailed retained
+post-contact divergence ranges and the `h1-family-a` target-1 diagnostic remain
+in the preceding corrected-gate evidence.
+
+The reviewed Linux host was x86_64, kernel 6.11.0-29-generic, using Rust 1.97.1
+(`x86_64-unknown-linux-gnu`) and the release profile. Rendering used Vulkan on
+an NVIDIA GeForce RTX 4070 Ti SUPER with driver 595.84. The exact review command
+was:
+
+```console
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode symmetry-launch
+```
+
+This owner verdict completes the Linux visual checkpoint. The later Windows
+visual pass and owner-approved macOS exception are recorded below. The
+behavior/configuration at the frozen SHA must remain identical across hosts.
+Any change to launch-family parameters, symmetry mappings, the nuisance corpus,
+physics, geometry/colliders, rest/completion behavior, dependencies, features,
+or other executable d6 behavior invalidates the freeze and requires a new
+frozen SHA plus repeated applicable automated and owner visual validation.
+
+### Frozen-candidate native validation procedure
+
+Every host must check out the exact frozen behavior candidate
+`1b20d531dcaf04198e068e69ba84382bff87a0f8`; evidence-only descendants are
+acceptable only after verifying that their executable/configuration diff from
+that SHA is empty. Use the checked-in Rust 1.97.1 minimal toolchain with
+`rustfmt` and `clippy`, Cargo Make 0.37.24, Cargo Nextest 0.9.143, and the
+committed `Cargo.lock`. The separate Linux MSRV gate remains Rust 1.95.0. Do
+not introduce host-specific launch tables, physics settings, or tuning.
+
+Run the focused gates on each native host:
+
+```console
+cargo test -p droll-gui --locked --test dice_geometry --test symmetry_launch_search
+cargo test -p droll-gui --locked --test symmetry_launch test_h1_paired_trajectories_match_before_contact_after_symmetry_canonicalization -- --exact --nocapture
+cargo test -p droll-gui --locked --test symmetry_launch test_h1_all_face_nominal_and_nuisance_corpus_is_216_of_216 -- --exact --nocapture
+cargo make verify-native
+```
+
+`cargo make verify-native` is the existing canonical native gate. Its
+workspace/all-targets/all-features Nextest invocation naturally executes the
+H1 integration tests, including the corrected paired gate, its target-dependent
+launch regression, and the full corpus. The checked-in `CI` workflow already
+runs this gate natively on `ubuntu-24.04` (`x86_64-unknown-linux-gnu`),
+`macos-15` (`aarch64-apple-darwin`), `macos-15-intel`
+(`x86_64-apple-darwin`), and `windows-2025`
+(`x86_64-pc-windows-msvc`). No Stage-1-specific workflow invocation is needed.
+Linux `cargo make verify-xwin` remains supplementary cross-target evidence and
+cannot replace the Windows native job.
+
+On every required real-window host, run the same presentation command shown
+above and review the same 24 nominal cases in family-major A/B/C/D order and
+target order 1-6. Record:
+
+- exact commit and confirmation that behavior matches the frozen SHA;
+- OS version, native architecture/triple, Rust and Cargo versions, release
+  profile, GPU/adapter, driver, graphics backend, and display/window session;
+- all focused and `verify-native` results, paired first-contact boundary and
+  pre-contact maxima, post-contact divergence ranges/contact diagnostics,
+  216/216 corpus count, family completion ranges, peak speeds, terminal faces,
+  timeout/wrong-face count, and recovery/intervention/work counters; and
+- reviewer, date, PASS/FAIL, case ordering, and observations of launch and
+  settling naturalness, family variation, any obvious staged initial
+  orientation, target-directed or face-specific manipulation, platform-specific
+  pathological bouncing/settling, and agreement between requested and final
+  physical face.
+
+A native systemic configuration passes only when the frozen SHA and
+toolchain/host are confirmed, all focused and native gates pass, every corpus
+face is correct, pre-contact paired equivalence passes, and timeout, wrong-face,
+recovery/retry, and post-spawn target-aware intervention/work remain zero.
+Post-contact numeric divergence is retained diagnostically and fails only when
+it exposes a real H1 defect. Manual runtime/visual evidence is recorded
+separately and never inferred from hosted headless success. STOP on a SHA or
+behavior mismatch, material pre-contact divergence, wrong face, timeout,
+recovery/retry, intervention/work, need for platform-specific tuning, staged
+orientation that is visually obvious, target-directed manipulation, or
+pathological native motion.
+
+### Owner-approved Stage 1 native-visual gate decision
+
+The evidence layers and their obligations are:
+
+1. **Automated/native systemic evidence:** mandatory and green for Linux
+   x86_64, Windows x86_64, macOS Intel, and macOS Apple Silicon. These jobs are
+   native compile/test/systemic evidence, not visual verdicts.
+2. **Manual visual/runtime evidence:** passed on Linux x86_64 and real Windows
+   x86_64 hardware. The Windows run matched the approved Linux behavior.
+   macOS manual evidence is unavailable and is non-blocking only for this
+   Stage 1 gate by explicit owner decision.
+3. **Deferred pre-release macOS real-hardware validation:** still required on
+   stable supported hardware where practical, including rented or borrowed
+   hardware if appropriate. This preserves macOS as a supported first-class
+   target and does not weaken mandatory native CI/systemic coverage.
+
+The available physical Intel Mac is a `Macmini7,1` running macOS Sequoia
+through OpenCore Legacy Patcher. Its normal Bevy/WGPU Metal path fails before a
+valid H1 review because wgpu-hal 29.0.4 selects MSL 3.2 based on macOS 15 while
+the legacy Metal stack/compiler accepts only through MSL 3.1. Disabling
+`WGPU_VALIDATION_INDIRECT_CALL` allowed Bevy to create the window and begin the
+spike, but ordinary render compute pipelines then failed with the same MSL 3.2
+compiler error, leaving the window blank.
+
+A controlled local wgpu-hal experiment was prepared outside this repository to
+cap the reported MSL version at 3.1. During release compilation of that patched
+dependency the physical Mac hard-froze before the example launched. The
+experiment is **inconclusive** and is recorded as neither a runtime PASS nor
+FAIL. Apple Silicon manual visual evidence is unavailable because the owner
+does not currently have access to Apple Silicon hardware.
+
+| Required native configuration | Systemic evidence | Real-window evidence | Overall |
+|---|---|---|---|
+| Linux x86_64 | Passed: corrected gates, 216/216, local suite, hosted native CI | Passed: owner, 2026-08-21 | **Stage 1 d6 gate passed** |
+| macOS Apple Silicon | Passed: hosted native CI/systemic matrix green | Unavailable: owner has no Apple Silicon hardware; deferred to pre-release | **Stage 1 manual exception** |
+| macOS Intel | Passed: hosted native CI/systemic matrix green | Unavailable on `Macmini7,1`: legacy Metal/MSL incompatibility; patched experiment inconclusive; deferred to pre-release | **Stage 1 manual exception** |
+| Windows x86_64 MSVC | Passed: hosted native CI/systemic matrix green | Passed: real hardware; matched approved Linux behavior | **Stage 1 d6 gate passed** |
+
+The local Linux evidence at the frozen candidate also includes passing
+`cargo make verify-xwin`, `cargo make verify`, `cargo make msrv`, and
+`git diff --check`. Those results preserve the existing dependency, native CI,
+MSRV, policy, and cargo-xwin 0.23.1 boundaries. The later native hosted matrix
+supplies the separate four-platform systemic evidence. Neither source is used
+as a substitute for a manual visual verdict.
+
+## Owner-ratified recorded-physics replacement decision
+
+On 2026-08-22 the owner retired continued H1 work voluntarily and ratified the
+bounded target-blind pre-simulate / record / proper-solid-symmetry / replay
+architecture as the new Stage 1 candidate. The historical evidence boundary is:
+
+- guided settling and visible target-aware recovery remain rejected;
+- d6 H1 remains a successful experiment with its 216/216 corpus, corrected
+  pre-contact proof, Linux/Windows visual passes, native systemic evidence, and
+  narrow macOS manual exception;
+- the committed d20 geometry, numbering, labels, collider source, upward-face
+  observation, and 60-element proper symmetry group remain valid reusable
+  foundations;
+- the stopped d20 H1 search remains authoritative evidence only for its exact
+  implemented grid. Its audit found that grid did not conform to the
+  preregistered size/inertia/tray seed derivation, so the STOP does not establish
+  intrinsic H1 infeasibility or reject the three-family premise; and
+- a fresh conforming d20 H1 search is voluntarily retired by owner decision,
+  not by a physical-failure verdict.
+
+No recorded-physics implementation or replacement-spike evidence exists yet.
+There is no Stage 1 GO. Phase 0 remains unauthorized until the ratified contract
+and evidence diff is reviewed and the owner separately grants implementation
+authority. The existing narrow Stage 1 macOS manual-visual exception transfers
+to the replacement candidate: macOS Intel and Apple Silicon native systemic
+evidence remain mandatory, while real-hardware macOS visual/runtime review is
+deferred to pre-release on stable supported hardware where practical and must
+be recorded as an exception, never a PASS. Linux and real Windows owner visual
+checkpoints remain mandatory for the replacement spike.
+
+### Durable d20 H1 search STOP reproducer
+
+The exact unstaged Phase 4 implementation is preserved at
+`docs/development/stage-1-d20-h1-search-stop-reproducer.patch` against base
+`595804e7ce3c437fce540bd36a615768d2e72308`. The patch SHA-256 is
+`61b8c9369ef3e7c3be91cc96832ca703a9f221ad0da8e250ddf3fd1516f95d2d`;
+the associated raw `target/stage-1-evidence/d20-launch-search-stop.log`
+SHA-256 is
+`0519d0c7949676c265244b97599da768365d6527ef0b799945df6b47cf84eb7e`.
+The patch preserves only the stopped nonconforming-grid implementation for
+historical reproduction. The current architecture does not authorize applying
+or running it. H1 was voluntarily retired and was not physically disproven.
+
+## Historical Candidate D review commands
+
+```console
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-1-high-tumble
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-2-awkward-low-energy
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-4-side-spin
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-5-awkward-low-energy
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario d6-faces --mode candidate-d --case d6-6-side-spin
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d --case recovery-bad-orientation
+cargo run -p droll-gui --release --example directed_physics_spike -- --scenario recovery --mode candidate-d --case recovery-edge
+```
+
+## Platform and checkpoint verdict
+
+The native Linux release runs used Vulkan on NVIDIA GeForce RTX 4070 Ti SUPER,
+driver 595.84. Windows native runtime/visual H1 d6 validation passed on real
+hardware and matched the approved Linux behavior. macOS manual evidence is
+deferred under the narrow owner-approved Stage 1 exception; macOS native
+systemic coverage remains mandatory and green. d20, multi-die, keep/drop, and
+the final full-Stage 1 GO/STOP remain later gates. Linux xwin 0.23.1 remains
+supplementary compile/check/Clippy evidence only.
+
+Candidate D checkpoint verdict: **FAIL / OWNER-REJECTED**. H1 replacement
+initial checkpoint verdict: **STOP / PAIRED-TRAJECTORY DIVERGENCE BEFORE VISUAL
+REVIEW**. The corrected pre-contact gate, 216/216 corpus, and Linux owner visual
+checkpoint now pass at the frozen behavior candidate. Candidate B/D and the
+original H1 STOP remain historical evidence. The Linux and Windows manual
+passes plus green four-platform native systemic evidence satisfy the owner-
+approved d6 gate. At that historical checkpoint, the contract permitted a
+separately approved d20 H1 experiment. H1 is now voluntarily
+retired as the active candidate rather than disproven. The recorded-physics
+replay architecture is only the new Stage 1 candidate; it has no implementation
+evidence and does not establish Stage 1 GO. The deferred macOS pre-release real-
+hardware validation obligation remains.
