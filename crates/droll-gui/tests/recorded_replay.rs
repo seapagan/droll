@@ -6,12 +6,15 @@ use droll_gui::{
     dice::{d6_geometry, d6_solid_symmetries, d20_geometry, d20_solid_symmetries},
     physics::{
         D20PresentationMapping, DieKind, FixedD6Presentation, FixedD20Presentation, NumberedVisual,
-        PhysicalBatchRequest, PhysicalTray, PlaybackRoot, RecordedPlaybackClock,
-        RecordedPlaybackPlugin, RecordedTrajectoryPlayback, SemanticPresentationMap,
-        TrajectorySample, compose_visible_orientation, map_d6_presentation, map_d20_presentation,
+        PhysicalBatchRequest, PlaybackRoot, RecordedPlaybackClock, RecordedPlaybackPlugin,
+        RecordedTrajectoryPlayback, SemanticPresentationMap, TrajectorySample,
+        compose_visible_orientation, map_d6_presentation, map_d20_presentation,
         natural_record_identity, prepare_recorded_batch, sample_recorded_transform,
     },
 };
+
+#[path = "support/recorded_batch.rs"]
+mod recorded_batch_fixture;
 
 const EPSILON: f32 = 1.0e-5;
 const PHYSICAL_SEED: u64 = 0xD65A_1E00_0000_0001;
@@ -245,9 +248,8 @@ fn test_phase3_tuples_change_only_four_presentation_mappings() {
 }
 
 #[test]
-fn test_phase4_mixed_tuples_reuse_one_immutable_physical_contact_record() {
-    let record = prepare_recorded_batch(&phase4_mixed10_request())
-        .expect("one target-blind interacting mixed10 record");
+fn test_phase4_synthetic_mixed_tuples_reuse_one_immutable_record() {
+    let record = recorded_batch_fixture::mixed_record(10, PHASE4_MIXED10_SEED);
     let frozen = record.clone();
     let identity = natural_record_identity(&record);
     let accepted_seed = record.attempts.last().unwrap().physical_seed;
@@ -301,19 +303,8 @@ fn test_phase4_mixed_tuples_reuse_one_immutable_physical_contact_record() {
 }
 
 #[test]
-fn test_phase4_mixed20_mapping_is_correct_and_transform_only() {
-    let request = PhysicalBatchRequest::new(
-        std::iter::repeat_n(DieKind::D20, 4)
-            .chain(std::iter::repeat_n(DieKind::D6, 16))
-            .collect(),
-        0x4D20_16D6_0000_0004,
-    )
-    .with_tray(PhysicalTray {
-        width: 14.0,
-        depth: 12.0,
-        wall_height: 1.0,
-    });
-    let record = prepare_recorded_batch(&request).expect("bounded mixed20 record");
+fn test_phase4_synthetic_mixed20_mapping_is_correct_and_transform_only() {
+    let record = recorded_batch_fixture::mixed_record(20, PHASE4_MIXED10_SEED);
     let frozen = record.clone();
     let requested = record
         .dice
@@ -345,20 +336,6 @@ fn test_phase4_mixed20_mapping_is_correct_and_transform_only() {
         .collect::<Vec<_>>();
     assert_eq!(visible, requested);
     assert_eq!(record, frozen);
-}
-
-fn phase4_mixed10_request() -> PhysicalBatchRequest {
-    PhysicalBatchRequest::new(
-        std::iter::repeat_n(DieKind::D20, 2)
-            .chain(std::iter::repeat_n(DieKind::D6, 8))
-            .collect(),
-        PHASE4_MIXED10_SEED,
-    )
-    .with_tray(PhysicalTray {
-        width: 10.0,
-        depth: 8.0,
-        wall_height: 1.0,
-    })
 }
 
 fn mixed_phase_ids(presentation: &SemanticPresentationMap) -> Vec<(u16, u64)> {

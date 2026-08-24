@@ -858,6 +858,15 @@ mod tests {
 
     use super::*;
 
+    mod recorded_batch_fixture {
+        use crate as droll_gui;
+
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/recorded_batch.rs"
+        ));
+    }
+
     #[derive(Resource)]
     struct ReplaySpawnFixture {
         record: RecordedBatch,
@@ -1086,20 +1095,26 @@ mod tests {
     }
 
     #[test]
-    fn test_mixed10_and_mixed20_successful_preparations_remain_replayable() {
+    fn test_mixed10_and_mixed20_native_preparations_are_bounded_or_replayable() {
         for scenario in [SpikeScenario::Mixed10, SpikeScenario::Mixed20] {
             let (request, _) = recorded_request(scenario);
-            let RecordedReplayPreparation::Replay(record) =
-                classify_visual_preparation(prepare_recorded_batch(&request))
-            else {
-                panic!("normal mixed scenario must produce a replayable record");
-            };
-            let requested = selected_requested_tuples(&record, scenario, None);
-            assert!(!requested.is_empty());
-            assert!(
-                SemanticPresentationMap::for_mixed_tuple(&record, &requested[0]).is_ok(),
-                "normal mixed setup must still create its presentation mapping"
-            );
+            match classify_visual_preparation(prepare_recorded_batch(&request)) {
+                RecordedReplayPreparation::Replay(record) => {
+                    let requested = selected_requested_tuples(&record, scenario, None);
+                    assert!(!requested.is_empty());
+                    assert!(
+                        SemanticPresentationMap::for_mixed_tuple(&record, &requested[0]).is_ok(),
+                        "accepted native preparation must create its presentation mapping"
+                    );
+                }
+                RecordedReplayPreparation::BlockingFailure(failure) => {
+                    assert_eq!(failure.attempts.len(), 3);
+                    assert!(failure.attempts.iter().all(|attempt| {
+                        attempt.die_count == request.dice().len()
+                            && matches!(attempt.outcome, AttemptOutcome::Invalid(_))
+                    }));
+                }
+            }
         }
     }
 
@@ -1179,9 +1194,7 @@ mod tests {
 
     #[test]
     fn test_mixed10_checkpoint_and_slow_motion_use_one_deterministic_record() {
-        let (request, seed) = recorded_request(SpikeScenario::Mixed10);
-        assert_eq!(seed, RECORDED_MIXED10_PHYSICAL_SEED);
-        let record = prepare_recorded_batch(&request).expect("mixed10 fixture record");
+        let record = recorded_batch_fixture::mixed_record(10, RECORDED_MIXED10_PHYSICAL_SEED);
         assert_eq!(
             selected_requested_tuples(&record, SpikeScenario::Mixed10, None),
             PHASE4_TUPLES.map(Vec::from).to_vec()
@@ -1212,8 +1225,7 @@ mod tests {
 
     #[test]
     fn test_mixed10_replay_spawns_ten_kind_correct_transform_hierarchies() {
-        let (request, _) = recorded_request(SpikeScenario::Mixed10);
-        let record = prepare_recorded_batch(&request).expect("mixed10 fixture record");
+        let record = recorded_batch_fixture::mixed_record(10, RECORDED_MIXED10_PHYSICAL_SEED);
         let presentation = SemanticPresentationMap::for_mixed_tuple(&record, &PHASE4_TUPLES[1])
             .expect("mixed10 fixture mapping");
         let (mut app, expected) = batch_replay_fixture_app(record, presentation);

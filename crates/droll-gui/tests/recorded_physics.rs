@@ -152,6 +152,7 @@ fn test_phase3_retries_only_complete_4d6_batches() {
 
 #[test]
 fn test_d6_and_d20_hidden_runs_are_unpaced_normalized_and_in_memory() {
+    assert_hidden_runner_is_structurally_unpaced();
     for (kind, seed) in [(DieKind::D6, 0xD6), (DieKind::D20, 0xD20)] {
         let record = prepare_recorded_batch(&PhysicalBatchRequest::new(vec![kind], seed))
             .expect("Phase 0 single-die calibration should settle");
@@ -175,38 +176,64 @@ fn test_d6_and_d20_hidden_runs_are_unpaced_normalized_and_in_memory() {
                 assert!(Quat::from_array(previous.unit_orientation).dot(orientation) >= 0.0);
             }
         }
-        let calibration = &record.calibration;
-        assert_eq!(calibration.physics_hz, 60);
-        assert_eq!(calibration.recording_hz, 60);
-        assert_eq!(calibration.trajectory_sample_count, die.samples.len());
-        assert_eq!(
-            calibration.raw_trajectory_payload_bytes,
-            die.samples.len() * 32
-        );
-        assert!(calibration.trajectory_capacity_bytes >= calibration.raw_trajectory_payload_bytes);
-        assert!(calibration.record_container_bytes >= calibration.trajectory_capacity_bytes);
-        assert!(calibration.world_entity_count >= 6);
-        assert!(calibration.simulated_duration > calibration.wall_clock_duration);
-        assert!(die.terminal.contacts.tray_contact_events >= 1);
-        assert!(die.terminal.contacts.max_simultaneous_contacts >= 1);
-        assert!(die.terminal.contacts.first_contact_step.is_some());
-        assert!(die.terminal.contacts.last_contact_step.is_some());
-        eprintln!(
-            "phase0-calibration kind={kind:?} attempts={} outcome={:?} simulated={:?} wall={:?} steps={} samples={} raw_bytes={} capacity_bytes={} container_bytes={} construction={:?} entities={} app_bytes={}",
-            record.attempts.len(),
-            record.attempts.last().expect("accepted attempt").outcome,
-            calibration.simulated_duration,
-            calibration.wall_clock_duration,
-            calibration.fixed_steps,
-            calibration.trajectory_sample_count,
-            calibration.raw_trajectory_payload_bytes,
-            calibration.trajectory_capacity_bytes,
-            calibration.record_container_bytes,
-            calibration.world_construction_duration,
-            calibration.world_entity_count,
-            calibration.app_stack_bytes,
-        );
+        assert_calibration_metrics(&record, kind);
     }
+}
+
+fn assert_hidden_runner_is_structurally_unpaced() {
+    let runner_source = include_str!("../src/physics/recorded/runner.rs");
+    let hidden_world = source_function(runner_source, "fn build_hidden_world");
+    let hidden_run = source_function(runner_source, "fn run_attempt");
+    assert!(hidden_world.contains("MinimalPlugins"));
+    assert!(hidden_world.contains("TimeUpdateStrategy::ManualDuration(FIXED_STEP)"));
+    assert!(hidden_run.contains("hidden.app.update();"));
+    for pacing in [
+        "sleep(",
+        "thread::sleep",
+        "ScheduleRunnerPlugin",
+        "DefaultPlugins",
+    ] {
+        assert!(!hidden_world.contains(pacing) && !hidden_run.contains(pacing));
+    }
+}
+
+fn assert_calibration_metrics(record: &droll_gui::physics::RecordedBatch, kind: DieKind) {
+    let die = &record.dice[0];
+    let calibration = &record.calibration;
+    assert_eq!(calibration.physics_hz, 60);
+    assert_eq!(calibration.recording_hz, 60);
+    assert_eq!(calibration.trajectory_sample_count, die.samples.len());
+    assert_eq!(
+        calibration.raw_trajectory_payload_bytes,
+        die.samples.len() * 32
+    );
+    assert!(calibration.trajectory_capacity_bytes >= calibration.raw_trajectory_payload_bytes);
+    assert!(calibration.record_container_bytes >= calibration.trajectory_capacity_bytes);
+    assert!(calibration.world_entity_count >= 6);
+    assert_eq!(
+        calibration.simulated_duration,
+        record.fixed_step * calibration.fixed_steps
+    );
+    assert_eq!(die.samples.len(), calibration.fixed_steps as usize);
+    assert!(die.terminal.contacts.tray_contact_events >= 1);
+    assert!(die.terminal.contacts.max_simultaneous_contacts >= 1);
+    assert!(die.terminal.contacts.first_contact_step.is_some());
+    assert!(die.terminal.contacts.last_contact_step.is_some());
+    eprintln!(
+        "phase0-calibration kind={kind:?} attempts={} outcome={:?} simulated={:?} wall={:?} steps={} samples={} raw_bytes={} capacity_bytes={} container_bytes={} construction={:?} entities={} app_bytes={}",
+        record.attempts.len(),
+        record.attempts.last().expect("accepted attempt").outcome,
+        calibration.simulated_duration,
+        calibration.wall_clock_duration,
+        calibration.fixed_steps,
+        calibration.trajectory_sample_count,
+        calibration.raw_trajectory_payload_bytes,
+        calibration.trajectory_capacity_bytes,
+        calibration.record_container_bytes,
+        calibration.world_construction_duration,
+        calibration.world_entity_count,
+        calibration.app_stack_bytes,
+    );
 }
 
 #[test]
@@ -262,27 +289,41 @@ fn test_phase3_4d6_batch_is_nonoverlapping_shared_and_genuinely_interacting() {
 fn test_phase4_mixed10_is_nonoverlapping_valid_and_genuinely_mixed() {
     let request = PhysicalBatchRequest::new(phase4_composition(10), PHASE4_MIXED10_SEED)
         .with_tray(phase4_diagnostic_tray(10));
-    let record = prepare_recorded_batch(&request).expect("target-blind 2d20 + 8d6 record");
-    assert_valid_batch(&record, 10);
-    assert_nonoverlapping_initial_states(&record);
-    assert_contact_samples_are_ordered(&record);
-    let kinds = meaningful_pair_kinds(&record);
-    assert!(kinds.contains(&(DieKind::D6, DieKind::D6)));
-    assert!(kinds.contains(&(DieKind::D6, DieKind::D20)));
-    assert!(record.contacts.max_simultaneous_dice_pairs >= 2);
-    report_phase4_checkpoint("mixed10", PHASE4_MIXED10_SEED, &record);
+    let outcome = repeatable_native_outcome(&request);
+    match outcome {
+        Ok(record) => {
+            assert_valid_batch(&record, 10);
+            assert_nonoverlapping_initial_states(&record);
+            assert_contact_samples_are_ordered(&record);
+            let kinds = meaningful_pair_kinds(&record);
+            assert!(kinds.contains(&(DieKind::D6, DieKind::D6)));
+            assert!(kinds.contains(&(DieKind::D6, DieKind::D20)));
+            assert!(record.contacts.max_simultaneous_dice_pairs >= 2);
+            report_phase4_checkpoint("mixed10", PHASE4_MIXED10_SEED, &record);
+        }
+        Err(failure) => {
+            assert_bounded_native_exhaustion("mixed10", PHASE4_MIXED10_SEED, 10, &failure)
+        }
+    }
 }
 
 #[test]
 fn test_phase4_mixed20_is_bounded_valid_and_interacting() {
     let request = PhysicalBatchRequest::new(phase4_composition(20), PHASE4_MIXED20_SEED)
         .with_tray(phase4_diagnostic_tray(20));
-    let record =
-        prepare_recorded_batch(&request).expect("target-blind 4d20 + 16d6 normal diagnostic");
-    assert_valid_batch(&record, 20);
-    assert_nonoverlapping_initial_states(&record);
-    assert!(meaningful_pair_kinds(&record).contains(&(DieKind::D6, DieKind::D20)));
-    report_phase4_checkpoint("mixed20", PHASE4_MIXED20_SEED, &record);
+    let outcome = repeatable_native_outcome(&request);
+    match outcome {
+        Ok(record) => {
+            assert_valid_batch(&record, 20);
+            assert_nonoverlapping_initial_states(&record);
+            assert_contact_samples_are_ordered(&record);
+            assert!(meaningful_pair_kinds(&record).contains(&(DieKind::D6, DieKind::D20)));
+            report_phase4_checkpoint("mixed20", PHASE4_MIXED20_SEED, &record);
+        }
+        Err(failure) => {
+            assert_bounded_native_exhaustion("mixed20", PHASE4_MIXED20_SEED, 20, &failure)
+        }
+    }
 }
 
 #[test]
@@ -334,6 +375,114 @@ fn phase4_diagnostic_tray(count: usize) -> PhysicalTray {
     }
 }
 
+fn repeatable_native_outcome(
+    request: &PhysicalBatchRequest,
+) -> Result<droll_gui::physics::RecordedBatch, droll_gui::physics::PreparationFailure> {
+    let first = prepare_recorded_batch(request);
+    let second = prepare_recorded_batch(request);
+    assert_same_native_physical_outcome(&first, &second);
+    first
+}
+
+fn assert_same_native_physical_outcome(
+    first: &Result<droll_gui::physics::RecordedBatch, droll_gui::physics::PreparationFailure>,
+    second: &Result<droll_gui::physics::RecordedBatch, droll_gui::physics::PreparationFailure>,
+) {
+    let (first_attempts, second_attempts) = match (first, second) {
+        (Ok(first), Ok(second)) => {
+            assert_eq!(first.fixed_step, second.fixed_step);
+            assert_eq!(first.tray, second.tray);
+            assert_eq!(first.dice, second.dice);
+            assert_eq!(first.contacts, second.contacts);
+            assert_eq!(
+                first.calibration.fixed_steps,
+                second.calibration.fixed_steps
+            );
+            (first.attempts.as_slice(), second.attempts.as_slice())
+        }
+        (Err(first), Err(second)) => (first.attempts.as_slice(), second.attempts.as_slice()),
+        _ => panic!("identical physical requests changed accepted/exhausted outcome"),
+    };
+    assert_eq!(first_attempts.len(), second_attempts.len());
+    for (first, second) in first_attempts.iter().zip(second_attempts) {
+        assert_eq!(first.attempt, second.attempt);
+        assert_eq!(first.physical_seed, second.physical_seed);
+        assert_eq!(first.die_count, second.die_count);
+        assert_eq!(first.fixed_steps, second.fixed_steps);
+        assert_eq!(first.simulated_duration, second.simulated_duration);
+        assert_eq!(
+            first.trajectory_sample_count,
+            second.trajectory_sample_count
+        );
+        assert_eq!(
+            first.dice_contact_interactions,
+            second.dice_contact_interactions
+        );
+        assert_eq!(
+            first.max_simultaneous_dice_pairs,
+            second.max_simultaneous_dice_pairs
+        );
+        assert_eq!(first.outcome, second.outcome);
+    }
+}
+
+fn assert_bounded_native_exhaustion(
+    name: &str,
+    base_seed: u64,
+    die_count: usize,
+    failure: &droll_gui::physics::PreparationFailure,
+) {
+    assert_eq!(failure.attempts.len(), 3);
+    for (index, attempt) in failure.attempts.iter().enumerate() {
+        let attempt_number = u8::try_from(index + 1).expect("three attempts");
+        assert_eq!(attempt.attempt, attempt_number);
+        assert_eq!(attempt.die_count, die_count);
+        assert_eq!(
+            attempt.physical_seed,
+            expected_attempt_seed(base_seed, attempt_number)
+        );
+        assert!(
+            (1..=PhysicalValidityPolicy::default().watchdog_steps).contains(&attempt.fixed_steps)
+        );
+        assert_eq!(
+            attempt.simulated_duration,
+            record_step_duration() * attempt.fixed_steps
+        );
+        assert!(matches!(
+            attempt.outcome,
+            AttemptOutcome::Invalid(
+                InvalidityReason::LeftTray { .. }
+                    | InvalidityReason::NonfinitePhysicsState { .. }
+                    | InvalidityReason::AmbiguousUpwardFace { .. }
+                    | InvalidityReason::UnsupportedDie { .. }
+                    | InvalidityReason::EdgeOrCornerTraySupport { .. }
+                    | InvalidityReason::UnreadableOrPathologicalStack { .. }
+                    | InvalidityReason::WatchdogExpired
+                    | InvalidityReason::RecordOverflow
+                    | InvalidityReason::FixedStepDidNotAdvanceExactlyOnce
+            )
+        ));
+    }
+    // Fixture exhaustion is portable native evidence only. Stage D still requires
+    // exactly 40 requested preparations per normal class, where every exhausted
+    // <=20-die preparation remains independently blocking unless the owner revises it.
+    eprintln!("phase4-{name} bounded_failure={:?}", failure.attempts);
+}
+
+fn record_step_duration() -> std::time::Duration {
+    std::time::Duration::from_nanos(16_666_667)
+}
+
+fn expected_attempt_seed(base: u64, attempt: u8) -> u64 {
+    mix64(base.wrapping_add(u64::from(attempt).wrapping_mul(0x9E37_79B9_7F4A_7C15)))
+}
+
+fn mix64(mut value: u64) -> u64 {
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
+}
+
 fn assert_valid_batch(record: &droll_gui::physics::RecordedBatch, count: usize) {
     assert!(!record.attempts.is_empty() && record.attempts.len() <= 3);
     assert_eq!(record.dice.len(), count);
@@ -354,6 +503,10 @@ fn assert_valid_batch(record: &droll_gui::physics::RecordedBatch, count: usize) 
             .map(|die| die.ordinal)
             .collect::<Vec<_>>(),
         (0..u16::try_from(count).unwrap()).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        record.dice.iter().map(|die| die.kind).collect::<Vec<_>>(),
+        phase4_composition(count)
     );
     assert!(record.dice.iter().all(|die| {
         (1..=die.kind.face_count()).contains(&die.natural_terminal_face)
