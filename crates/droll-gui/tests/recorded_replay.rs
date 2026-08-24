@@ -22,6 +22,7 @@ const D20_PHYSICAL_SEED: u64 = 0xD20A_1E00_0000_0001;
 const PHASE3_4D6_SEED: u64 = 0x4D6A_1E00_0000_0003;
 const PHASE3_TUPLES: [[u8; 4]; 4] = [[6, 6, 6, 6], [1, 2, 3, 4], [6, 2, 5, 3], [2, 5, 1, 6]];
 const PHASE4_MIXED10_SEED: u64 = 0x2D20_8D6A_0000_0004;
+const PHASE4_MIXED20_SEED: u64 = 0x4D20_16D6_0000_0004;
 const PHASE4_TUPLES: [[u8; 10]; 4] = [
     [20, 1, 6, 1, 6, 1, 6, 1, 6, 1],
     [3, 17, 1, 2, 3, 4, 5, 6, 2, 5],
@@ -304,7 +305,7 @@ fn test_phase4_synthetic_mixed_tuples_reuse_one_immutable_record() {
 
 #[test]
 fn test_phase4_synthetic_mixed20_mapping_is_correct_and_transform_only() {
-    let record = recorded_batch_fixture::mixed_record(20, PHASE4_MIXED10_SEED);
+    let record = recorded_batch_fixture::mixed_record(20, PHASE4_MIXED20_SEED);
     let frozen = record.clone();
     let requested = record
         .dice

@@ -415,6 +415,19 @@ fn assert_same_native_physical_outcome(
             second.trajectory_sample_count
         );
         assert_eq!(
+            first.raw_trajectory_payload_bytes,
+            second.raw_trajectory_payload_bytes
+        );
+        assert_eq!(
+            first.trajectory_capacity_bytes,
+            second.trajectory_capacity_bytes
+        );
+        assert_eq!(first.record_container_bytes, second.record_container_bytes);
+        assert_eq!(
+            first.dice_contact_sample_count,
+            second.dice_contact_sample_count
+        );
+        assert_eq!(
             first.dice_contact_interactions,
             second.dice_contact_interactions
         );
@@ -459,7 +472,6 @@ fn assert_bounded_native_exhaustion(
                     | InvalidityReason::UnreadableOrPathologicalStack { .. }
                     | InvalidityReason::WatchdogExpired
                     | InvalidityReason::RecordOverflow
-                    | InvalidityReason::FixedStepDidNotAdvanceExactlyOnce
             )
         ));
     }
